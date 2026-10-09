@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+coze_browser_app="${COZE_BROWSER_APP:-$HOME/Applications/扣子账号浏览器.app}"
+coze_browser_bin_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -z "${COZE_BROWSER_APP:-}" ] && [ -x "$coze_browser_bin_dir/../../../../Contents/MacOS/CozeAccountBrowser" ]; then
+  coze_browser_app=$(CDPATH= cd -- "$coze_browser_bin_dir/../../../.." && pwd)
+fi
+if [ ! -x "$coze_browser_app/Contents/MacOS/CozeAccountBrowser" ]; then
+  echo '扣子账号浏览器尚未安装。' >&2
+  exit 1
+fi
+exec env ELECTRON_RUN_AS_NODE=1 COZE_BROWSER_APP="$coze_browser_app" "$coze_browser_app/Contents/MacOS/CozeAccountBrowser" "$coze_browser_app/Contents/Resources/app/src/cli.cjs" "$@"

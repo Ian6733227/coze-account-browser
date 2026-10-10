@@ -9,7 +9,7 @@ const run = (command, args) => execFileSync(command, args, { stdio: 'inherit' })
 run('ditto', ['--norsrc', '--noextattr', path.join(root, 'node_modules/electron/dist/Electron.app'), app]);
 const plist = path.join(app, 'Contents/Info.plist');
 for (const [key, value] of Object.entries({ CFBundleName: '扣子账号浏览器', CFBundleDisplayName: '扣子账号浏览器', CFBundleIdentifier: 'cn.local.cozeaccounts.browser',
-  CFBundleExecutable: 'CozeAccountBrowser', CFBundleIconFile: 'CozeIcon.icns', CFBundleShortVersionString: version, CFBundleVersion: '20000' })) {
+  CFBundleExecutable: 'CozeAccountBrowser', CFBundleIconFile: 'CozeIcon.icns', CFBundleShortVersionString: version, CFBundleVersion: version.split('.').reduce((value, part) => value * 100 + Number(part), 0).toString() })) {
   try { execFileSync('/usr/libexec/PlistBuddy', ['-c', `Set :${key} ${value}`, plist], { stdio: 'pipe' }); }
   catch { run('/usr/libexec/PlistBuddy', ['-c', `Add :${key} string ${value}`, plist]); }
 }

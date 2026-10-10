@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('coze', Object.freeze({
   tab: id => ipcRenderer.invoke('coze:tab', id),
   closeTab: () => ipcRenderer.invoke('coze:close-tab'),
   overlay: visible => ipcRenderer.invoke('coze:overlay', visible === true),
+  onHelp: callback => {
+    const listener = () => callback();
+    ipcRenderer.on('coze:show-help', listener);
+    return () => ipcRenderer.removeListener('coze:show-help', listener);
+  },
   onState: callback => {
     const listener = (_event, value) => callback(value);
     ipcRenderer.on('coze:update', listener);

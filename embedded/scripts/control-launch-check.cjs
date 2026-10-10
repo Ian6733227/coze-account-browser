@@ -38,8 +38,17 @@ async function main(){
    if(owned.every(pid=>{try{process.kill(pid,0);return false;}catch(error){if(error.code==='ESRCH')return true;throw error;}})){cleanup=true;break;}
    await sleep(100);
   }
+  // macOS may route SIGTERM through Electron's quit confirmation. Only the
+  // exact disposable processes collected above may be forcibly stopped.
+  if(!cleanup){
+   for(const pid of owned){try{process.kill(pid,'SIGKILL');}catch(error){if(error.code!=='ESRCH')throw error;}}
+   for(let attempt=0;attempt<50;attempt++){
+    if(owned.every(pid=>{try{process.kill(pid,0);return false;}catch(error){if(error.code==='ESRCH')return true;throw error;}})){cleanup=true;break;}
+    await sleep(100);
+   }
+  }
   if(cleanup){fs.rmSync(endpoint(root).directory,{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});}
-  else console.error('Disposable fixture retained for inspection: '+root);
+  else throw new Error('Disposable test process could not be cleaned; fixture retained at '+root);
  }
 }
 main().catch(error=>{console.error(error.stack);process.exitCode=1;});

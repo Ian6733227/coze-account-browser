@@ -34,7 +34,7 @@ function resolveAccount(store, selector, fallback) {
 function snapshot(browser,store,version) {
   const state = browser.state();
   return { protocolVersion:1,version,selected:state.selected,sidebarCollapsed:state.sidebarCollapsed,
-    accounts:state.accounts.map((a,index) => ({number:index+1,id:a.id,name:a.displayName,archived:a.archived,selected:a.id===state.selected,running:a.running,loading:a.loading,crashed:a.crashed})),
+    accounts:state.accounts.map((a,index) => ({number:index+1,id:a.id,name:a.displayName,archived:a.archived,selected:a.id===state.selected,running:a.running,paused:a.paused === true,loading:a.loading,crashed:a.crashed,error:a.pageError || null})),
     pages:[...(browser.entries.get(browser.selected)?.tabs || [])].map(tab => {
       let location = null; try { const url = new URL(pageURL(tab.view.webContents.getURL())); location = url.origin+url.pathname; } catch {}
       return {id:tab.id,primary:tab.primary,active:tab.id===browser.entries.get(browser.selected)?.active,location,loading:tab.view.webContents.isLoading(),crashed:tab.crashed,error:tab.error || null};

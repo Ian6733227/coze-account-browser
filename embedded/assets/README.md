@@ -6,5 +6,7 @@
 - 来源页面：https://www.coze.cn/
 - 原件 URL：https://lf-coze-web-cdn.coze.cn/obj/eden-cn/lm-lgvj/ljhwZthlaukjlkulzlp/space/logo-icon.png
 - 获取日期：2026-10-03。
-- CozeIcon.icns：用 macOS sips 转换各标准尺寸，再用 iconutil 打包；不重新绘制品牌图形。
+- coze-multi-account.png：2026-10-09 按用户要求以原标志为参考，经图像生成工具加入多账号卡片；2026-10-10 用户同意采用。
+- CozeIcon.icns：用 macOS sips 转换新图标各标准尺寸，再用 iconutil 打包。
+- 新图标只用于本工具的识别，不表示扣子官方背书。
 - 打包脚本将 CozeIcon.icns 写入 Contents/Resources 并设置 CFBundleIconFile。

@@ -23,6 +23,7 @@ exports.run = async ({ win, browser, store, root }) => {
   const planFile = path.join(root, 'synthetic-plan.json');
   const plan = fs.existsSync(planFile) ? JSON.parse(fs.readFileSync(planFile)) : null;
   const server = http.createServer((req, res) => {
+    if (req.url === '/failure') { req.socket.destroy(); return; }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`<!doctype html><html><head><title>Synthetic ${req.url === '/popup' ? 'Popup' : 'Account'}</title></head><body><h1>本机测试网页</h1><p>合成账号，没有真实登录资料</p><script>window.popupMessage='';addEventListener('message',e=>{if(e.origin===location.origin)window.popupMessage=e.data});if(location.pathname==='/popup'&&window.opener)window.opener.postMessage('popup-ok',location.origin);</script></body></html>`);
   });
@@ -60,6 +61,59 @@ exports.run = async ({ win, browser, store, root }) => {
       const data = await probe(browser.activeTab().view.webContents); assert.equal(data.stored, `synthetic-${index}`); assert.equal(data.cookie, `identity=synthetic-${index}`);
     }
     assert.equal(BrowserWindow.getAllWindows().length, 1); console.log('PASS switching keeps all six renderer identities and only one visible view/window');
+    // Genuine local navigation failure must not look healthy in the sidebar or CLI.
+    const failedTab = browser.activeTab();
+    await failedTab.view.webContents.loadURL(browser.home + 'failure').catch(() => {});
+    await until(() => Boolean(browser.state().accounts.find(a => a.id === browser.selected).pageError), 'per-account navigation error');
+    await until(async () => await win.webContents.executeJavaScript(`document.querySelector('.account.active .dot').classList.contains('error') && document.querySelector('#status').textContent.includes('加载失败')`), 'red failed page status');
+    assert.ok((await cli('status')).accounts.find(a => a.selected).error);
+    await failedTab.view.webContents.loadURL(browser.home);
+    await until(() => !browser.state().accounts.find(a => a.id === browser.selected).pageError, 'navigation error clears after recovery');
+    console.log('PASS real local page failure is red in sidebar/header and returned by CLI; recovery clears it');
+    // Editing owns a fixed account target; shell shortcuts and page menu actions stay blocked.
+    const editorAccount = store.accounts[1]; browser.select(editorAccount.id);
+    await until(async () => await win.webContents.executeJavaScript(`document.querySelector('#name').textContent === ${JSON.stringify(editorAccount.name)}`), 'editor target rendered');
+    await win.webContents.executeJavaScript(`document.querySelector('#edit').click()`);
+    await until(() => browser.overlay, 'editor overlay');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: '1', modifiers: ['meta'] });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: '1', modifiers: ['meta'] });
+    await sleep(100); assert.equal(browser.selected, editorAccount.id);
+    const editorURL = browser.activeTab().view.webContents.getURL(); browser.navigate('home');
+    assert.equal(browser.activeTab().view.webContents.getURL(), editorURL);
+    await win.webContents.executeJavaScript(`document.querySelector('#account-name').value='编辑目标 B';document.querySelector('#profile-name').checked=false;document.querySelector('#form').requestSubmit()`);
+    await until(() => !browser.overlay, 'editor save');
+    assert.equal(store.get(editorAccount.id).name, '编辑目标 B'); assert.equal(store.accounts[0].name, '扣子账号 1');
+    store.edit(editorAccount.id, editorAccount.name, '', true);
+    console.log('PASS editor shortcut lock and save target remain consistent');
+    // State updates preserve keyboard focus on account controls and fallback numbers.
+    await win.webContents.executeJavaScript(`document.querySelectorAll('#accounts .account')[2].focus()`);
+    browser.onUpdate();
+    await until(async () => await win.webContents.executeJavaScript(`document.activeElement.dataset.accountId === ${JSON.stringify(store.accounts[2].id)}`), 'account keyboard focus survives update');
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('#accounts .account-number').length`), 6);
+    console.log('PASS default avatar numbers and focus retained');
+    // Help lives in the same native window and restores the existing account renderer.
+    const helpAccount = browser.selected, helpRenderer = browser.attached.webContents.id;
+    await win.webContents.executeJavaScript(`document.querySelector('#help').click()`);
+    await until(() => browser.overlay, 'help overlay');
+    await until(async () => await win.webContents.executeJavaScript(`document.querySelector('#help-frame').contentDocument?.querySelector('video')?.readyState >= 1`), 'bundled tutorial metadata');
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('#help-frame').contentDocument.querySelector('video').duration`), 60);
+    assert.equal(win.contentView.children.filter(v => v.getVisible()).length, 0);
+    // Help itself has scripts disabled. Inspect it through the trusted shell;
+    // never weaken that sandbox simply to inject a test into the help frame.
+    assert.equal(await win.webContents.executeJavaScript(`typeof document.querySelector('#help-frame').contentWindow.coze`), 'undefined');
+    assert.equal(await win.webContents.executeJavaScript(`typeof document.querySelector('#help-frame').contentWindow.require`), 'undefined');
+    await win.webContents.executeJavaScript(`const helpVideo=document.querySelector('#help-frame').contentDocument.querySelector('video');helpVideo.muted=true;helpVideo.play()`);
+    await until(async () => await win.webContents.executeJavaScript(`document.querySelector('#help-frame').contentDocument.querySelector('video').currentTime > .2`), 'bundled tutorial playback');
+    if (process.env.COZE_BROWSER_EVIDENCE) {
+      const evidence = process.env.COZE_BROWSER_EVIDENCE; fs.mkdirSync(evidence,{recursive:true});
+      fs.writeFileSync(path.join(evidence,'help-window.png'),(await win.webContents.capturePage()).toPNG());
+    }
+    await win.webContents.executeJavaScript(`document.querySelector('#help-close').click()`);
+    await until(() => !browser.overlay, 'help close');
+    assert.equal(browser.selected, helpAccount); assert.equal(browser.attached.webContents.id, helpRenderer);
+    await until(async () => await win.webContents.executeJavaScript(`!document.querySelector('#help-frame').getAttribute('src') && !document.querySelector('#help-dialog').open`), 'help unload stops media');
+    browser.select(store.accounts[5].id);
+    console.log('PASS numbered fallback icons, retained keyboard focus, one-window offline help video and original account restoration');
     win.setContentSize(1080, 720); browser.layout(); assert.deepEqual(browser.attached.getBounds(), { x: LEFT, y: TOP, width: 1080 - LEFT, height: 720 - TOP - FOOT });
     browser.setOverlay(true); assert.equal(win.contentView.children.filter(v => v.getVisible()).length, 0); browser.setOverlay(false); assert.equal(win.contentView.children.filter(v => v.getVisible()).length, 1);
     console.log('PASS resize and native view overlay suppression');
@@ -75,7 +129,9 @@ exports.run = async ({ win, browser, store, root }) => {
     await primary.view.webContents.executeJavaScript('void window.open("file:///etc/passwd")'); await sleep(150); assert.equal(entry.tabs.length, 1);
     console.log('PASS authorization popup shares account session/opener and stays in one window; unsafe schemes denied');
     const id = browser.selected, oldID = primary.view.webContents.id; await browser.pause(id); assert.equal(entry.tabs.length, 0); assert.equal(win.contentView.children.filter(v => v.getVisible()).length, 0);
+    assert.equal(browser.state().accounts.find(a => a.id === id).paused, true);
     browser.select(id); await ready(browser.activeTab().view.webContents); assert.notEqual(browser.activeTab().view.webContents.id, oldID);
+    assert.equal(browser.state().accounts.find(a => a.id === id).paused, false);
     assert.equal((await probe(browser.activeTab().view.webContents)).stored, 'synthetic-5'); assert.equal((await probe(browser.activeTab().view.webContents)).cookie, 'identity=synthetic-5');
     const stablePath = store.sessionPath(id); store.edit(id, '第六个测试账号', '测试'); assert.equal(store.sessionPath(id), stablePath);
     const seventh = store.add('第七个账号'); browser.select(seventh.id); await ready(browser.activeTab().view.webContents); assert.equal((await probe(browser.activeTab().view.webContents)).cookie, '');
@@ -133,6 +189,7 @@ exports.run = async ({ win, browser, store, root }) => {
     const compact = await win.webContents.executeJavaScript(`({aside:document.querySelector('aside').getBoundingClientRect().width,main:document.querySelector('main').getBoundingClientRect().left,hidden:getComputedStyle(document.querySelector('.account-details')).display,label:document.querySelector('.account').getAttribute('aria-label'),expand:document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')})`);
     assert.equal(compact.aside, COMPACT_LEFT); assert.equal(compact.main, COMPACT_LEFT); assert.equal(compact.hidden, 'none'); assert.ok(compact.label.includes('账号 1')); assert.equal(compact.expand, 'false');
     assert.equal(browser.attached.webContents.id, retainedView);
+    if (process.env.COZE_BROWSER_EVIDENCE) fs.writeFileSync(path.join(process.env.COZE_BROWSER_EVIDENCE,'compact-sidebar.png'),(await win.webContents.capturePage()).toPNG());
     const cookieBefore = (await probe(browser.entries.get(second.id).tabs[0].view.webContents)).cookie;
     browser.select(second.id); assert.equal(browser.attached.getBounds().x, COMPACT_LEFT);
     assert.equal((await probe(browser.activeTab().view.webContents)).cookie, cookieBefore);

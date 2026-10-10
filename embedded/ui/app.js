@@ -12,34 +12,50 @@ function fillAvatar(element, value, fallback) {
   else element.textContent = fallback;
 }
 function initials(name) { return /^[a-z0-9]/i.test(name) ? Array.from(name).slice(0,2).join('').toUpperCase() : Array.from(name)[0] || '号'; }
+function avatarColor(id) {
+  const colors = ['#505fc7','#187867','#a44868','#8b5b26','#6852a3','#276fa0'];
+  let hash = 0; for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return colors[hash % colors.length];
+}
+function pageStatus(account, current) {
+  return account.crashed ? '网页已退出 · 请刷新' : account.pageError ? '加载失败 · 请刷新' : account.loading ? '加载中' :
+    account.running ? (current ? '当前网页' : '后台运行') : account.paused ? '已暂停' : '网页未打开';
+}
 function render(value) {
   state = value; const current = selected();
   document.body.classList.toggle('sidebar-collapsed', state.sidebarCollapsed === true);
   const toggleLabel = state.sidebarCollapsed ? '展开账号侧栏' : '收起账号侧栏';
   $('sidebar-toggle').title = toggleLabel; $('sidebar-toggle').setAttribute('aria-label', toggleLabel);
   $('sidebar-toggle').setAttribute('aria-expanded', String(!state.sidebarCollapsed));
-  $('count').textContent = `${state.accounts.filter(a => !a.archived).length} 个账号 · ${state.accounts.filter(a => a.running).length} 个运行中`;
+  const archivedRunning = state.accounts.filter(a => a.archived && a.running).length;
+  $('count').textContent = `${state.accounts.filter(a => !a.archived).length} 个账号 · ${state.accounts.filter(a => a.running).length} 个网页运行中${archivedRunning ? `（含 ${archivedRunning} 个已停用）` : ''}`;
+  const focusedAccount = document.activeElement?.closest('#accounts .account')?.dataset.accountId;
+  const accountScroll = $('accounts').scrollTop;
   $('accounts').replaceChildren();
-  state.accounts.filter(a => !a.archived || $('archived').checked).forEach((a, index) => {
+  state.accounts.filter(a => !a.archived || $('archived').checked || a.id === state.selected).forEach(a => {
     const button = document.createElement('button'); button.className = `account${a.id === state.selected ? ' active' : ''}`;
+    button.dataset.accountId = a.id;
     button.setAttribute('aria-current', a.id === state.selected ? 'true' : 'false');
-    const avatar = document.createElement('span'); avatar.className = 'avatar'; fillAvatar(avatar, a.displayAvatar, initials(a.displayName));
-    if (state.accounts.filter(other => other.displayName === a.displayName).length > 1) {
+    const avatar = document.createElement('span'); avatar.className = 'avatar'; avatar.style.setProperty('--avatar-color', avatarColor(a.id)); fillAvatar(avatar, a.displayAvatar, initials(a.displayName));
+    if (!a.displayAvatar || state.accounts.filter(other => other.displayName === a.displayName).length > 1) {
       const badge = document.createElement('span'); badge.className = 'account-number'; badge.textContent = String(state.accounts.indexOf(a) + 1); badge.setAttribute('aria-hidden', 'true'); button.append(badge);
     }
     const details = document.createElement('span'); details.className = 'account-details';
     const name = document.createElement('span'); name.className = 'account-name'; name.textContent = a.displayName;
     const status = document.createElement('span'); status.className = 'account-state';
-    status.textContent = a.crashed ? '需要刷新' : a.loading ? '加载中' : a.running ? (a.id === state.selected ? '当前网页' : '后台运行') : '未打开';
+    status.textContent = pageStatus(a, a.id === state.selected);
     if (a.archived) status.textContent += ' · 已停用';
-    const dot = document.createElement('span'); dot.className = `dot ${a.crashed ? 'error' : a.loading ? 'loading' : a.running ? 'running' : ''}`;
+    const dot = document.createElement('span'); dot.className = `dot ${a.crashed || a.pageError ? 'error' : a.loading ? 'loading' : a.running ? 'running' : ''}`;
     details.append(name, status); button.append(avatar, details, dot);
     button.title = `${a.displayName} · 账号 ${state.accounts.indexOf(a) + 1} · ${status.textContent}${a.note ? '\n' + a.note : ''}`;
     button.setAttribute('aria-label', `${a.displayName}，账号 ${state.accounts.indexOf(a) + 1}，${status.textContent}`);
     button.addEventListener('click', () => invoke(window.coze.select(a.id)).catch(() => {})); $('accounts').append(button);
   });
+  if (focusedAccount) [...$('accounts').children].find(button => button.dataset.accountId === focusedAccount)?.focus({preventScroll:true});
+  $('accounts').scrollTop = accountScroll;
   $('name').textContent = current?.displayName || '扣子账号浏览器';
-  $('status').textContent = current?.running ? (current.loading ? '网页加载中' : '当前账号') : '网页未打开';
+  $('status').textContent = current ? pageStatus(current, true) : '选择账号开始';
+  $('status').classList.toggle('error', Boolean(current?.crashed || current?.pageError));
   $('archive').textContent = current?.archived ? '恢复' : '停用';
   for (const id of ['edit','archive','pause','resume','sync']) $(id).disabled = !current;
   $('pause').disabled = !current?.running;
@@ -75,7 +91,23 @@ async function editor(id = null) {
   $('restore-avatar').disabled = account?.avatarMode !== 'custom';
   await invoke(window.coze.overlay(true)); $('editor').showModal(); $('account-name').focus(); $('account-name').select();
 }
-async function closeEditor() { $('editor').close(); await invoke(window.coze.overlay(false)); }
+async function closeEditor() { $('editor').close(); editing = null; await invoke(window.coze.overlay(false)); }
+async function openHelp() {
+  if ($('editor').open || $('help-dialog').open) return;
+  await invoke(window.coze.overlay(true));
+  if (!$('help-frame').getAttribute('src')) $('help-frame').src = 'help/index.html';
+  $('help-dialog').showModal(); $('help-close').focus();
+}
+async function closeHelp() {
+  // Unload the document to stop tutorial audio when returning to an account.
+  $('help-frame').removeAttribute('src'); $('help-dialog').close();
+  await invoke(window.coze.overlay(false)); $('help').focus();
+}
+$('help').addEventListener('click', () => openHelp().catch(() => {}));
+$('empty-help').addEventListener('click', () => openHelp().catch(() => {}));
+$('help-close').addEventListener('click', () => closeHelp().catch(() => {}));
+$('help-dialog').addEventListener('cancel', event => { event.preventDefault(); closeHelp().catch(() => {}); });
+window.coze.onHelp(() => openHelp().catch(() => {}));
 $('add').addEventListener('click', () => editor().catch(() => {}));
 $('edit').addEventListener('click', () => editor(state.selected).catch(() => {}));
 $('cancel').addEventListener('click', () => closeEditor().catch(() => {}));

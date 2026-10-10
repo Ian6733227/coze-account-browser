@@ -1,6 +1,6 @@
 {
   "name": "coze-account-browser",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Single-window Chromium browser for independent Coze accounts",
   "private": true,
   "main": "src/main.cjs",
@@ -11,5 +11,7 @@
     "test:control-launch": "node scripts/control-launch-check.cjs",
     "package": "node scripts/package.cjs"
   },
-  "devDependencies": { "electron": "44.5.1" }
+  "devDependencies": {
+    "electron": "44.5.1"
+  }
 }

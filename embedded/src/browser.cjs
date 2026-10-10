@@ -32,6 +32,7 @@ class AccountBrowser {
   shortcuts(wc) {
     wc.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown' || !(input.meta || input.control) || input.alt || input.shift || !/^[1-9]$/.test(input.key)) return;
+      if (this.overlay) { event.preventDefault(); return; }
       const account = this.store.accounts.filter(a => !a.archived)[Number(input.key) - 1];
       if (account) { event.preventDefault(); this.select(account.id); }
     });
@@ -84,6 +85,7 @@ class AccountBrowser {
   ensure(id) {
     const entry = this.entry(id);
     if (!entry.tabs.some(t => t.primary && !t.view.webContents.isDestroyed())) {
+      entry.paused = false;
       const tab = this.makeTab(entry, {}, true);
       tab.requestedURL = this.home;
       tab.view.webContents.loadURL(this.home).catch(() => {});
@@ -167,6 +169,7 @@ class AccountBrowser {
     const tab = this.activeTab(); if (tab && !tab.primary) tab.view.webContents.close();
   }
   navigate(action) {
+    if (this.overlay) return;
     const tab = this.activeTab(); if (!tab) { if (this.selected) this.select(this.selected); return; }
     const wc = tab.view.webContents;
     if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
@@ -179,6 +182,7 @@ class AccountBrowser {
   }
   async pause(id) {
     const entry = this.entries.get(id); if (!entry) return;
+    entry.paused = true;
     if (this.selected === id) this.detach();
     // flush, then dispose renderers. Session remains on disk for next opening.
     await entry.session.cookies.flushStore();
@@ -191,8 +195,8 @@ class AccountBrowser {
       const entry = this.entries.get(a.id), tabs = entry?.tabs || [];
       return { ...a, displayName: a.useProfileName && a.profile.name ? a.profile.name : a.name,
         displayAvatar: a.avatarMode === 'custom' ? a.customAvatar : isDefaultAvatar(a.profile.avatar) ? '' : a.profile.avatar,
-        syncing: this.profileChecks.get(a.id)?.busy === true, running: tabs.length > 0, loading: tabs.some(t => t.view.webContents.isLoading()),
-        crashed: tabs.some(t => t.crashed) };
+        syncing: this.profileChecks.get(a.id)?.busy === true, running: tabs.length > 0, paused: entry?.paused === true && tabs.length === 0, loading: tabs.some(t => t.view.webContents.isLoading()),
+        crashed: tabs.some(t => t.crashed), pageError: tabs.find(t => t.id === entry.active)?.error || '' };
     }), tabs: (this.entries.get(this.selected)?.tabs || []).map(t => ({
       id: t.id, primary: t.primary, title: t.primary ? '扣子' : (t.view.webContents.getTitle() || '新页面').slice(0, 60), active: t.id === this.entries.get(this.selected).active
     })), error: this.activeTab()?.error || this.profileErrors.get(this.selected) || '', host: (() => { try { return new URL(this.activeTab()?.view.webContents.getURL()).hostname; } catch { return ''; } })() };

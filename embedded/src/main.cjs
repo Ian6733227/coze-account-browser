@@ -22,6 +22,9 @@ else {
     // HTTP User-Agent is a byte header; the Chinese app display name must not
     // leak into it (session.fetch/custom protocol headers reject non-ASCII).
     app.userAgentFallback = app.userAgentFallback.replaceAll('扣子账号浏览器', 'CozeAccountsBrowser');
+    app.setAboutPanelOptions({ applicationName: '扣子账号浏览器', applicationVersion: app.getVersion(),
+      iconPath: path.join(__dirname, '../assets/coze-multi-account.png'),
+      copyright: '非官方辅助工具 · 一个窗口，多个独立账号' });
     const store = new Store(root, testing || rootIndex >= 0 ? null : path.join(app.getPath('appData'), 'CozeAccounts', 'accounts.json'));
     win = new BrowserWindow({ width: 1280, height: 840, minWidth: 960, minHeight: 650,
       title: '扣子账号浏览器', titleBarStyle: 'hiddenInset', backgroundColor: '#f6f7fb',
@@ -34,7 +37,10 @@ else {
     browser.onUpdate = () => { if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send('coze:update', browser.state()); };
     const handle = (name, fn) => ipcMain.handle(`coze:${name}`, async (event, payload) => {
       if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== shellURL) throw new Error('不允许访问。');
-      try { return { ok: true, value: await fn(payload) }; } catch (err) { return { ok: false, error: err.message || '操作未完成。' }; }
+      try {
+        if (browser.overlay && ['select','open-all','sidebar','archive','pause','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先关闭帮助，或保存/取消账号编辑。');
+        return { ok: true, value: await fn(payload) };
+      } catch (err) { return { ok: false, error: err.message || '操作未完成。' }; }
     });
     handle('state', () => browser.state());
     handle('sidebar', value => browser.setSidebarCollapsed(value));
@@ -71,14 +77,16 @@ else {
         { label: '刷新当前网页', accelerator: 'CmdOrCtrl+R', click: () => browser.navigate('reload') },
         { label: '放大', accelerator: 'CmdOrCtrl+=', click: () => browser.navigate('zoom-in') }, { label: '缩小', accelerator: 'CmdOrCtrl+-', click: () => browser.navigate('zoom-out') },
         { label: '原始大小', accelerator: 'CmdOrCtrl+0', click: () => browser.navigate('zoom-reset') }, { role: 'togglefullscreen', label: '全屏' }] },
-      { label: '窗口', submenu: [{ role: 'minimize', label: '最小化' }, { role: 'front', label: '前置窗口' }] }
+      { label: '窗口', submenu: [{ role: 'minimize', label: '最小化' }, { role: 'front', label: '前置窗口' }] },
+      { role: 'help', label: '帮助', submenu: [{ label: '使用帮助与视频教程', accelerator: 'CmdOrCtrl+Shift+H',
+        click: () => { if (!browser.overlay) win.webContents.send('coze:show-help'); } }] }
     ]));
     await win.loadURL(shellURL);
     if (!testing) { const first = store.accounts.find(a => !a.archived); if (first) browser.select(first.id); }
     if (!process.argv.includes('--no-control')) control = await startControl({browser,store,win,version:app.getVersion(),isBusy:() => quitPrompt});
     if (testing) {
       try { await require('../test/browser-test.cjs').run({ app, win, browser, store, root }); await control?.close(); await browser.dispose(); app.exit(0); }
-      catch (err) { console.error('BROWSER_TEST_FAILED', err.stack); await control?.close(); await browser.dispose(); app.exit(1); }
+      catch (err) { console.error('BROWSER_TEST_FAILED', err?.stack || String(err)); await control?.close(); await browser.dispose(); app.exit(1); }
     } else {
       win.on('close', event => { if (!quitting) { event.preventDefault(); app.quit(); } });
       app.on('before-quit', event => {

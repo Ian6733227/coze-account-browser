@@ -2,15 +2,15 @@
 
 在一个窗口里切换多个扣子账号的 macOS 桌面工具。每个账号使用独立的本机网页登录资料，支持五个以上账号、头像与昵称同步、图标侧栏，以及供其他软件调用的本机 CLI。
 
-**非扣子官方产品。当前开发源码为 2.3.1；公开下载入口暂为 2.2.0 预览版。尚未经过 Apple 公证。**
+**非扣子官方产品。当前版本为 2.3.1，适用于 Apple 芯片 Mac。尚未经过 Apple 公证。**
 
 ## 下载与安装
 
-前往 [Releases 下载页面](https://github.com/Ian6733227/coze-account-browser/releases/tag/v2.2.0)，下载 `CozeAccountBrowser-2.2.0-macos-arm64.zip`。无需下载 `Source code`，无需另外安装 Chrome 或 Node.js。
+前往 [Releases 下载页面](https://github.com/Ian6733227/coze-account-browser/releases/latest)，下载 `CozeAccountBrowser-2.3.1-macos-arm64.zip`。无需下载 `Source code`，无需另外安装 Chrome 或 Node.js。
 
 - 支持：Apple 芯片 Mac（arm64），macOS 13 或更高版本；本机已验证 arm64，未覆盖所有 macOS 版本。
 - 未提供：Intel Mac、Windows、Linux、iOS 或 Android 安装包。
-- 下载页提供 `SHA256SUMS.txt`，可用 `shasum -a 256 CozeAccountBrowser-2.2.0-macos-arm64.zip` 对照文件完整性。
+- 下载页提供 `SHA256SUMS.txt`，可用 `shasum -a 256 CozeAccountBrowser-2.3.1-macos-arm64.zip` 对照文件完整性。
 
 1. 解压 ZIP，将“扣子账号浏览器.app”拖入“应用程序”文件夹。
 2. 打开应用，选择左侧账号，在右侧扣子官网页面自行登录。
@@ -18,8 +18,10 @@
 
 本版本仅有 ad-hoc 本地签名，没有 Developer ID 签名与 Apple 公证。首次打开可能被 macOS 拦截。确认来源和校验值后，可参考 [Apple 官方打开说明](https://support.apple.com/zh-cn/102445)，在“系统设置 → 隐私与安全性”中处理该应用的“仍要打开”提示。不要关闭系统整体安全保护；如果系统报告恶意软件或文件损坏，停止使用并检查下载来源。
 
-## 2.3.0 改进
+## 2.3.1 改进
 
+- 普通退出直接关闭应用，保留登录资料，不再反复确认。
+- 收起侧栏时“全部打开”保留可见文字，方便辨认。
 - 侧栏和“帮助”菜单内置离线登录指引、60 秒中文教程与 CLI 说明；关闭帮助返回原账号。
 - 采用含多账号卡片的新图标，默认头像使用固定颜色和账号编号。
 - 编辑/帮助期间拦截切换账号快捷键；加载失败显示红色，CLI 同步返回错误与暂停状态。

@@ -16,7 +16,7 @@ app.setName('扣子账号浏览器');
 app.setPath('userData', root);
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 else {
-  let win, browser, control, quitting = false, quitPrompt = false;
+  let win, browser, control, quitting = false, quitInProgress = false;
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
   app.whenReady().then(async () => {
     // HTTP User-Agent is a byte header; the Chinese app display name must not
@@ -83,7 +83,7 @@ else {
     ]));
     await win.loadURL(shellURL);
     if (!testing) { const first = store.accounts.find(a => !a.archived); if (first) browser.select(first.id); }
-    if (!process.argv.includes('--no-control')) control = await startControl({browser,store,win,version:app.getVersion(),isBusy:() => quitPrompt});
+    if (!process.argv.includes('--no-control')) control = await startControl({browser,store,win,version:app.getVersion(),isBusy:() => quitInProgress});
     if (testing) {
       try { await require('../test/browser-test.cjs').run({ app, win, browser, store, root }); await control?.close(); await browser.dispose(); app.exit(0); }
       catch (err) { console.error('BROWSER_TEST_FAILED', err?.stack || String(err)); await control?.close(); await browser.dispose(); app.exit(1); }
@@ -91,14 +91,10 @@ else {
       win.on('close', event => { if (!quitting) { event.preventDefault(); app.quit(); } });
       app.on('before-quit', event => {
         if (quitting) return;
-        event.preventDefault(); if (quitPrompt) return; quitPrompt = true;
+        event.preventDefault(); if (quitInProgress) return; quitInProgress = true;
         (async () => {
-          if (browser.state().accounts.some(a => a.running)) {
-            const result = await dialog.showMessageBox(win, { type: 'question', message: '退出扣子账号浏览器？',
-              detail: '所有账号的网页将关闭，运行中的任务和未保存的编辑可能中断。登录资料会保留。', buttons: ['继续使用', '退出'], defaultId: 0, cancelId: 0 });
-            if (result.response !== 1) { quitPrompt = false; return; }
-          }
-          quitting = true; await control?.close(); await browser.dispose(); app.quit();
+          // Ordinary quit flushes sessions and closes pages without an extra confirmation.
+          await control?.close(); await browser.dispose(); quitting = true; app.quit();
         })().catch(() => { quitting = true; app.quit(); });
       });
       app.on('activate', () => { if (win && !win.isDestroyed()) { win.show(); win.focus(); } });

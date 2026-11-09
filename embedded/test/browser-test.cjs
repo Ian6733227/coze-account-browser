@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict'), http = require('node:http'), fs = require('node:fs'), path = require('node:path');
-const { BrowserWindow, nativeImage } = require('electron');
+const { BrowserWindow, nativeImage, dialog } = require('electron');
 const {execFile} = require('node:child_process');
 const {promisify} = require('node:util');
 const execute = promisify(execFile);
@@ -13,7 +13,12 @@ async function until(fn, label) {
 }
 async function ready(wc) { await until(() => !wc.isLoading() && wc.getURL().startsWith('http:'), 'local page load'); }
 async function probe(wc) { return wc.executeJavaScript('({cookie:document.cookie,stored:localStorage.getItem("identity"),node:typeof require,bridge:typeof window.coze})'); }
-exports.run = async ({ win, browser, store, root }) => {
+exports.run = async ctx => {
+  // Optional synthetic suites share the same --self-test entry point as the regression below.
+  if (process.argv.includes('--mock-acceptance')) return require('./mock-acceptance-test.cjs').run(ctx);
+  if (process.argv.includes('--memory-check')) return require('./memory-test.cjs').run(ctx);
+  const { win, browser, store, root } = ctx;
+  assert.equal(await win.webContents.executeJavaScript('document.querySelector("footer span:last-child").textContent'), 'Chromium · ' + require('../package.json').version);
   const cli = async (...args) => {
     const env={...process.env,ELECTRON_RUN_AS_NODE:'1'};
     if (path.basename(process.execPath)==='CozeAccountBrowser') env.COZE_BROWSER_APP=path.resolve(path.dirname(process.execPath),'../..');
@@ -31,6 +36,18 @@ exports.run = async ({ win, browser, store, root }) => {
   const port = server.address().port; browser.home = `http://127.0.0.1:${port}/`;
   try {
     if (plan) {
+      // Stub HTTPS before restoration; no real Coze authentication or page fetch.
+      const restored = browser.entry(plan.resumeAccount);
+      await restored.session.protocol.handle('https', () => new Response('<!doctype html><title>Restored synthetic page</title><p>Anonymous restart fixture</p>', { headers: { 'Content-Type': 'text/html' } }));
+      browser.restoreSelection();
+      assert.equal(browser.selected, plan.resumeAccount); assert.equal(browser.entries.size, 1);
+      await until(() => !browser.activeTab().view.webContents.isLoading() && browser.activeTab().view.webContents.getURL() === plan.resumeURL, 'restored HTTPS fixture');
+      assert.equal(browser.activeTab().view.webContents.getURL(), plan.resumeURL);
+      assert.equal(BrowserWindow.getAllWindows().length, 1);
+      assert.equal(win.contentView.children.filter(view => view.getVisible()).length, 1);
+      assert.equal(fs.readFileSync(store.uiFile, 'utf8').includes('view=synthetic'), false);
+      console.log('PASS restart restores last account and safe page path without queries or reopening background accounts');
+      await browser.activeTab().view.webContents.loadURL(browser.home);
       browser.openAll(); assert.equal(store.accounts.filter(a => !a.archived).length, 6);
       assert.equal(store.sidebarCollapsed, true); assert.equal(browser.attached.getBounds().x, COMPACT_LEFT);
       await until(async () => await win.webContents.executeJavaScript('document.body.classList.contains("sidebar-collapsed")'), 'compact sidebar survives restart');
@@ -61,13 +78,61 @@ exports.run = async ({ win, browser, store, root }) => {
       const data = await probe(browser.activeTab().view.webContents); assert.equal(data.stored, `synthetic-${index}`); assert.equal(data.cookie, `identity=synthetic-${index}`);
     }
     assert.equal(BrowserWindow.getAllWindows().length, 1); console.log('PASS switching keeps all six renderer identities and only one visible view/window');
+    const archivedSecond = store.accounts[1], fixedThird = store.accounts[2];
+    store.toggleArchive(archivedSecond.id);
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: '3', modifiers: ['meta'] });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: '3', modifiers: ['meta'] });
+    await until(() => browser.selected === fixedThird.id, 'fixed number shortcut despite archive');
+    assert.equal((await cli('switch','3')).selected, fixedThird.id);
+    const stale = await win.webContents.executeJavaScript(`window.coze.archive(${JSON.stringify(store.accounts[0].id)})`);
+    assert.equal(stale.ok,false);assert.equal(store.accounts[0].archived,false);store.toggleArchive(archivedSecond.id);
+    console.log('PASS archived numbers stay fixed across native shortcuts/CLI and stale destructive targets are rejected');
+    const originalDialog = dialog.showMessageBox;
+    let confirm; dialog.showMessageBox = () => new Promise(resolve => { confirm = resolve; });
+    try {
+      await win.webContents.executeJavaScript(`window.__pauseReply = window.coze.pause(${JSON.stringify(fixedThird.id)}); null`);
+      await until(() => Boolean(confirm) && browser.overlay, 'native pause confirmation lock');
+      const blocked = await require('../src/control-transport.cjs').request(root,'switch',{account:'1'});
+      assert.equal(blocked.ok,false);assert.equal(blocked.error.code,'UI_BUSY');
+      confirm({response:0});await until(() => !browser.overlay,'native pause cancellation');
+      assert.equal((await win.webContents.executeJavaScript('window.__pauseReply')).ok,true);
+      assert.equal(browser.selected,fixedThird.id);
+    } finally { dialog.showMessageBox = originalDialog; if (browser.overlay && confirm) confirm({response:0}); }
+    console.log('PASS native confirmation blocks CLI selection until cancellation');
+    // Clear only anonymous fixture #3 through the real shell/IPC confirmation.
+    const staleClear = await win.webContents.executeJavaScript(`window.coze.clearAccountData(${JSON.stringify(store.accounts[0].id)})`);
+    assert.equal(staleClear.ok,false);
+    let clearConfirm;dialog.showMessageBox=()=>new Promise(resolve=>{clearConfirm=resolve;});
+    try {
+      await win.webContents.executeJavaScript(`document.querySelector('#edit').click(); null`);
+      await until(()=>browser.overlay,'clear editor');
+      await win.webContents.executeJavaScript(`document.querySelector('#clear-account-data').click(); null`);
+      await until(()=>Boolean(clearConfirm),'clear named confirmation');
+      assert.equal((await require('../src/control-transport.cjs').request(root,'switch',{account:'1'})).error.code,'UI_BUSY');
+      clearConfirm({response:0});await until(()=>!browser.overlay,'clear cancellation');
+      assert.equal((await probe(browser.activeTab().view.webContents)).stored,'synthetic-2');
+      clearConfirm=null;
+      await win.webContents.executeJavaScript(`window.__clearReply=window.coze.clearAccountData(${JSON.stringify(fixedThird.id)});null`);
+      await until(()=>Boolean(clearConfirm),'clear second confirmation');clearConfirm({response:1});
+      await until(()=>!browser.overlay,'clear completed');
+      assert.equal((await win.webContents.executeJavaScript('window.__clearReply')).ok,true);
+      assert.equal(browser.entries.get(fixedThird.id).tabs.length,0);
+      for(const [index,a] of store.accounts.entries())if(a.id!==fixedThird.id)assert.equal((await probe(browser.entries.get(a.id).tabs[0].view.webContents)).stored,`synthetic-${index}`);
+      browser.select(fixedThird.id);await ready(browser.activeTab().view.webContents);
+      const cleared=await probe(browser.activeTab().view.webContents);assert.equal(cleared.cookie,'');assert.equal(cleared.stored,null);
+      await browser.activeTab().view.webContents.executeJavaScript(`document.cookie='identity=synthetic-2; Max-Age=86400; SameSite=Lax';localStorage.setItem('identity','synthetic-2')`);
+    } finally {dialog.showMessageBox=originalDialog;if(browser.overlay&&clearConfirm)clearConfirm({response:0});}
+    console.log('PASS clear-login cancellation and target-only cookies/storage removal with other five sessions preserved');
     // Genuine local navigation failure must not look healthy in the sidebar or CLI.
     const failedTab = browser.activeTab();
     await failedTab.view.webContents.loadURL(browser.home + 'failure').catch(() => {});
     await until(() => Boolean(browser.state().accounts.find(a => a.id === browser.selected).pageError), 'per-account navigation error');
     await until(async () => await win.webContents.executeJavaScript(`document.querySelector('.account.active .dot').classList.contains('error') && document.querySelector('#status').textContent.includes('加载失败')`), 'red failed page status');
     assert.ok((await cli('status')).accounts.find(a => a.selected).error);
-    await failedTab.view.webContents.loadURL(browser.home);
+    await until(async () => await win.webContents.executeJavaScript('!document.querySelector("#recover-home").hidden'), 'visible recovery actions');
+    assert.equal(browser.attached,null);
+    await win.webContents.executeJavaScript('document.querySelector("#recover-home").click()');
+    await ready(failedTab.view.webContents);
     await until(() => !browser.state().accounts.find(a => a.id === browser.selected).pageError, 'navigation error clears after recovery');
     console.log('PASS real local page failure is red in sidebar/header and returned by CLI; recovery clears it');
     // Editing owns a fixed account target; shell shortcuts and page menu actions stay blocked.
@@ -139,7 +204,10 @@ exports.run = async ({ win, browser, store, root }) => {
     console.log('PASS pause/resume retains state; rename stable path; seventh account isolated and archive reversible');
     // Synthetic render crash is deliberately induced only in this temporary test profile.
     browser.activeTab().view.webContents.forcefullyCrashRenderer(); await until(() => browser.activeTab().crashed, 'renderer crash');
-    browser.navigate('reload'); await ready(browser.activeTab().view.webContents); assert.equal((await probe(browser.activeTab().view.webContents)).stored, 'synthetic-5');
+    await until(async () => await win.webContents.executeJavaScript('!document.querySelector("#recover-home").hidden'), 'crash recovery actions');
+    await win.webContents.executeJavaScript('document.querySelector("#recover-home").click()');
+    await ready(browser.activeTab().view.webContents); await until(() => !browser.activeTab().crashed,'home clears crashed state');
+    assert.equal((await probe(browser.activeTab().view.webContents)).stored, 'synthetic-5');
     console.log('PASS crashed renderer reload preserves session');
     const iconBytes = fs.readFileSync(path.join(__dirname, '../assets/coze-official-logo.png'));
     for (const [index, a] of store.accounts.filter(a => !a.archived).entries()) {
@@ -182,10 +250,11 @@ exports.run = async ({ win, browser, store, root }) => {
     store.edit(second.id, second.name, '', true, 'custom', anonymous);
     assert.equal(browser.state().accounts[1].displayAvatar, anonymous);
     store.edit(second.id, second.name, '', true, 'sync', '');
-    await until(async () => await win.webContents.executeJavaScript('document.querySelectorAll(".account-number").length === 2'), 'same-name icon badges');
+    await until(async () => await win.webContents.executeJavaScript('document.querySelectorAll(".account-number:not([hidden])").length === 2'), 'visible same-name icon badges');
     const retainedView = browser.attached.webContents.id;
     await win.webContents.executeJavaScript('document.querySelector("#sidebar-toggle").click()');
     await until(() => store.sidebarCollapsed && browser.attached.getBounds().x === COMPACT_LEFT, 'collapse relocates native page');
+    await until(async () => await win.webContents.executeJavaScript('document.querySelector("aside").getBoundingClientRect().width === 76'), 'collapsed shell bounds');
     const compact = await win.webContents.executeJavaScript(`({aside:document.querySelector('aside').getBoundingClientRect().width,main:document.querySelector('main').getBoundingClientRect().left,hidden:getComputedStyle(document.querySelector('.account-details')).display,label:document.querySelector('.account').getAttribute('aria-label'),expand:document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')})`);
     assert.equal(compact.aside, COMPACT_LEFT); assert.equal(compact.main, COMPACT_LEFT); assert.equal(compact.hidden, 'none'); assert.ok(compact.label.includes('账号 1')); assert.equal(compact.expand, 'false');
     assert.equal(browser.attached.webContents.id, retainedView);
@@ -202,8 +271,9 @@ exports.run = async ({ win, browser, store, root }) => {
     console.log('PASS compact sidebar CSS/native bounds, accessible icons, duplicate badges, custom default image override and live session preservation');
     const listed=await cli('accounts');assert.equal(listed.accounts.length,7);assert.equal(listed.accounts[6].archived,true);
     const originalViews=store.accounts.slice(0,6).map(a=>browser.entries.get(a.id).tabs[0].view.webContents.id);
-    for(let index=0;index<6;index++) {
-      const reply=await cli('switch',String(index+1));assert.equal(reply.selected,store.accounts[index].id);
+    for(let index=0;index<30;index++) {
+      const slot = index % 6;
+      const reply=await cli('switch',String(slot+1));assert.equal(reply.selected,store.accounts[slot].id);
       assert.equal(win.contentView.children.filter(view=>view.getVisible()).length,1);
     }
     assert.deepEqual(store.accounts.slice(0,6).map(a=>browser.entries.get(a.id).tabs[0].view.webContents.id),originalViews);
@@ -232,6 +302,8 @@ exports.run = async ({ win, browser, store, root }) => {
       assert.equal(BrowserWindow.getAllWindows().length,1);
       console.log('PASS packaged launch reconnects to existing isolated instance without duplicate window');
     }
-    fs.writeFileSync(planFile, JSON.stringify({ port }));
+    browser.switchTab(targetEntry.tabs.find(tab => tab.view.webContents.getURL() === 'https://www.coze.cn/project/901?view=synthetic').id);
+    assert.deepEqual(store.resume, { accountId: target.id, url: 'https://www.coze.cn/project/901' });
+    fs.writeFileSync(planFile, JSON.stringify({ port, resumeAccount: target.id, resumeURL: 'https://www.coze.cn/project/901' }));
   } finally { await new Promise(resolve => server.close(resolve)); }
 };

@@ -5,6 +5,8 @@ if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('
 const root = path.join(__dirname, '..'), version = require('../package.json').version;
 const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'coze-browser-package-'));
 const app = path.join(stage, '扣子账号浏览器.app'), dist = path.join(root, 'dist');
+const electronVersion = execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleVersion', path.join(root, 'node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/Info.plist')], { encoding: 'utf8' }).trim();
+if (electronVersion !== require('../package.json').devDependencies.electron) throw new Error('实际 Electron 运行时版本与锁定版本不一致，未打包。');
 const run = (command, args) => execFileSync(command, args, { stdio: 'inherit' });
 run('ditto', ['--norsrc', '--noextattr', path.join(root, 'node_modules/electron/dist/Electron.app'), app]);
 const plist = path.join(app, 'Contents/Info.plist');
@@ -21,7 +23,9 @@ fs.writeFileSync(path.join(appSource, 'package.json'), JSON.stringify({ name: 'c
 // Self-test code is included to verify the installed bundle with synthetic profiles.
 run('ditto', ['--norsrc', '--noextattr', path.join(root, 'test'), path.join(appSource, 'test')]);
 for (const name of ['LICENSE', 'LICENSES.chromium.html']) {
-  const source = path.join(root, 'node_modules/electron/dist', name); if (fs.existsSync(source)) fs.copyFileSync(source, path.join(app, 'Contents/Resources', name));
+  const source = path.join(process.env.COZE_BROWSER_LICENSE_DIR || path.join(root, 'node_modules/electron/dist'), name);
+  if (!fs.existsSync(source)) throw new Error('缺少运行时许可证，未打包。');
+  fs.writeFileSync(path.join(app, 'Contents/Resources', name), fs.readFileSync(source));
 }
 run('xattr', ['-cr', app]);
 run('codesign', ['--force', '--deep', '--sign', '-', app]);
@@ -30,5 +34,7 @@ fs.mkdirSync(dist, { recursive: true });
 run('ditto', ['--norsrc', '--noextattr', app, path.join(dist, '扣子账号浏览器.app')]);
 const zip = path.join(dist, `扣子账号浏览器-${version}.zip`);
 run('ditto', ['-c', '-k', '--norsrc', '--noextattr', '--keepParent', app, zip]);
-fs.writeFileSync(path.join(dist, 'build.json'), JSON.stringify({ version, electron: require('electron/package.json').version, arch: process.arch, stage: app, archive: zip }, null, 2) + '\n');
+const manifest = path.join(dist, `build-${path.basename(stage)}.tmp`);
+fs.writeFileSync(manifest, JSON.stringify({ version, electron: electronVersion, arch: process.arch, stage: app, archive: zip }, null, 2) + '\n');
+fs.renameSync(manifest, path.join(dist, 'build.json'));
 console.log(`Signed staging app: ${app}\nPackage: ${zip}`);

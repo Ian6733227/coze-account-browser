@@ -1,5 +1,4 @@
 'use strict';
-const { nativeImage } = require('electron');
 const { createHash } = require('node:crypto');
 // Fingerprint of the site's shared anonymous person icon after our 128px PNG
 // normalization. Keep other images, including custom copies, unchanged.
@@ -35,6 +34,7 @@ const PROFILE_SCRIPT = `(async () => {
   } catch { return null; } finally { clearTimeout(timer); }
 })()`;
 function avatarData(bytes) {
+  const { nativeImage } = require('electron');
   if (!bytes?.length || bytes.length > 8 * 1024 * 1024) throw new Error('请选择小于 8 MB 的头像图片。');
   const image = nativeImage.createFromBuffer(bytes);
   if (image.isEmpty()) throw new Error('这张图片无法用作头像，请选择 PNG、JPG 或 WebP。');

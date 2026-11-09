@@ -2,6 +2,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { safeResumeURL } = require('./resume.cjs');
+const { atomicWrite } = require('./atomic-write.cjs');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 function imageValue(value) { return typeof value === 'string' && value.length <= 160000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(value) ? value : ''; }
 function validate(accounts) {
@@ -25,9 +27,13 @@ class Store {
     this.file = path.join(root, 'accounts.json');
     fs.mkdirSync(root, { recursive: true, mode: 0o700 }); fs.chmodSync(root, 0o700);
     this.uiFile = path.join(root, 'ui-state.json');
-    try { this.sidebarCollapsed = JSON.parse(fs.readFileSync(this.uiFile, 'utf8')).sidebarCollapsed === true; }
-    catch { this.sidebarCollapsed = false; }
-    if (fs.existsSync(this.file)) this.accounts = validate(JSON.parse(fs.readFileSync(this.file, 'utf8')));
+    let ui = {};
+    try { ui = JSON.parse(fs.readFileSync(this.uiFile, 'utf8')) || {}; } catch { /* Old or malformed UI state is optional. */ }
+    this.sidebarCollapsed = ui.sidebarCollapsed === true;
+    if (fs.existsSync(this.file)) {
+      try { this.accounts = validate(JSON.parse(fs.readFileSync(this.file, 'utf8'))); }
+      catch { throw new Error(`账号列表无法读取，原文件和登录资料已保留。资料目录：${this.root}。请截图此提示联系维护者；不要删除资料目录、移走账号列表后重启，或重新生成账号列表。`); }
+    }
     else {
       let legacy = null;
       if (legacyFile && fs.existsSync(legacyFile)) {
@@ -36,12 +42,13 @@ class Store {
       this.accounts = legacy || Array.from({ length: 5 }, (_, i) => ({ id: randomUUID(), name: `扣子账号 ${i + 1}`, note: '', archived: false }));
       this.save(this.accounts);
     }
+    const resume = ui.resume;
+    this.resume = resume && this.accounts.some(a => a.id === resume.accountId) ?
+      { accountId: resume.accountId, url: safeResumeURL(resume.url) } : null;
   }
   save(accounts) {
     const normalized = validate(accounts);
-    const temp = this.file + `.tmp-${randomUUID()}`;
-    fs.writeFileSync(temp, JSON.stringify(normalized, null, 2) + '\n', { mode: 0o600 });
-    fs.renameSync(temp, this.file); fs.chmodSync(this.file, 0o600);
+    atomicWrite(this.file, JSON.stringify(normalized, null, 2) + '\n');
     this.accounts = normalized;
   }
   get(id) {
@@ -51,9 +58,20 @@ class Store {
   }
   setSidebarCollapsed(value) {
     if (typeof value !== 'boolean') throw new Error('侧栏设置不正确。');
-    const temp = this.uiFile + `.tmp-${randomUUID()}`;
-    fs.writeFileSync(temp, JSON.stringify({ sidebarCollapsed: value }) + '\n', { mode: 0o600 });
-    fs.renameSync(temp, this.uiFile); this.sidebarCollapsed = value;
+    this.writeUI(value, this.resume); this.sidebarCollapsed = value;
+  }
+  writeUI(sidebarCollapsed, resume) {
+    atomicWrite(this.uiFile, JSON.stringify({ sidebarCollapsed, resume }) + '\n');
+  }
+  setResume(accountId, url) {
+    this.get(accountId);
+    const resume = { accountId, url: safeResumeURL(url) };
+    if (this.resume?.accountId === resume.accountId && this.resume.url === resume.url) return;
+    this.writeUI(this.sidebarCollapsed, resume); this.resume = resume;
+  }
+  startupSelection() {
+    const account = this.accounts.find(a => a.id === this.resume?.accountId && !a.archived) || this.accounts.find(a => !a.archived);
+    return account ? { accountId: account.id, url: account.id === this.resume?.accountId ? this.resume.url : null } : null;
   }
   add(name, note = '', useProfileName = true) {
     const a = { id: randomUUID(), name, note, archived: false, useProfileName: useProfileName === true };
@@ -73,6 +91,11 @@ class Store {
   }
   toggleArchive(id) {
     this.get(id); this.save(this.accounts.map(a => a.id === id ? { ...a, archived: !a.archived } : a));
+  }
+  clearProfile(id) {
+    this.get(id);
+    this.save(this.accounts.map(a => a.id === id ? { ...a, profile: { name: '', avatar: '', syncedAt: 0 } } : a));
+    if (this.resume?.accountId === id) this.setResume(id, null);
   }
   sessionPath(id) {
     this.get(id);

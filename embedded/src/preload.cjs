@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('coze', Object.freeze({
   chooseAvatar: id => ipcRenderer.invoke('coze:choose-avatar', id),
   archive: id => ipcRenderer.invoke('coze:archive', id),
   pause: id => ipcRenderer.invoke('coze:pause', id),
+  clearAccountData: id => ipcRenderer.invoke('coze:clear-account-data', id),
   navigation: action => ipcRenderer.invoke('coze:navigation', action),
   tab: id => ipcRenderer.invoke('coze:tab', id),
   closeTab: () => ipcRenderer.invoke('coze:close-tab'),

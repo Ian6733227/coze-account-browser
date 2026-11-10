@@ -92,6 +92,13 @@ class Store {
   toggleArchive(id) {
     this.get(id); this.save(this.accounts.map(a => a.id === id ? { ...a, archived: !a.archived } : a));
   }
+  remove(id) {
+    this.get(id);
+    this.save(this.accounts.filter(a => a.id !== id));
+    // An old UI resume reference is ignored at startup if its ID no longer
+    // exists. Do not introduce a second fallible write after list commit.
+    if (this.resume?.accountId === id) this.resume = null;
+  }
   clearProfile(id) {
     this.get(id);
     this.save(this.accounts.map(a => a.id === id ? { ...a, profile: { name: '', avatar: '', syncedAt: 0 } } : a));

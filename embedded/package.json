@@ -1,6 +1,6 @@
 {
   "name": "coze-account-browser",
-  "version": "2.3.6",
+  "version": "2.3.7",
   "description": "Single-window Chromium browser for independent Coze accounts",
   "private": true,
   "main": "src/main.cjs",
@@ -15,7 +15,8 @@
     "test:restart": "node scripts/restart-check.cjs",
     "test:mock-acceptance": "node scripts/mock-acceptance-check.cjs",
     "test:memory": "node scripts/memory-check.cjs",
-    "test:brave-baseline": "node scripts/brave-baseline.cjs"
+    "test:brave-baseline": "node scripts/brave-baseline.cjs",
+    "test:delete": "node scripts/delete-check.cjs"
   },
   "devDependencies": {
     "electron": "44.5.1"

@@ -84,10 +84,10 @@ function render(value) {
   $('sync').textContent = current?.syncing ? '同步中…' : '同步头像昵称';
   const recovery = Boolean(current?.running && (current.crashed || current.pageError));
   document.querySelector('.empty').style.display = !current?.running || recovery ? 'flex' : 'none';
-  $('empty-title').textContent = recovery ? '这个网页暂时无法显示' : '一个界面，多个扣子账号';
-  $('empty-description').textContent = recovery ? (current.pageError || '网页进程已退出，请重新加载。') : '① 选择左侧账号　② 在右侧扣子网页完成登录。';
+  $('empty-title').textContent = recovery ? '这个网页暂时无法显示' : !state.accounts.length ? '还没有账号' : '一个界面，多个扣子账号';
+  $('empty-description').textContent = recovery ? (current.pageError || '网页进程已退出，请重新加载。') : !state.accounts.length ? '点击左侧“＋”添加账号，再在右侧扣子网页登录。' : '① 选择左侧账号　② 在右侧扣子网页完成登录。';
   $('empty-steps').hidden = recovery;
-  $('resume').hidden = recovery;
+  $('resume').hidden = recovery || !current;
   $('recover-reload').hidden = $('recover-home').hidden = !recovery;
   const confirmed = current?.identityStatus === 'confirmed';
   $('sync').title = confirmed ? `网页昵称读取于 ${new Date(current.identityCheckedAt).toLocaleString()}；头像不可用时显示默认图标，不代表登录或任务状态` : '头像与昵称可能是上次同步的缓存；登录后可重新同步';
@@ -125,6 +125,7 @@ async function editor(id = null) {
   $('profile-name').checked = account?.useProfileName ?? true;
   $('profile-hint').textContent = account?.profile.name ? `扣子昵称：${account.profile.name}` : '登录后自动获取当前账号的昵称与头像。';
   $('avatar-editor').hidden = !id; $('clear-account-data').hidden = !id; $('clear-account-data').disabled = account?.pausing === true;
+  $('delete-account').hidden = !id; $('delete-account').disabled = account?.pausing === true;
   avatarMode = account?.avatarMode || 'sync'; customAvatar = account?.customAvatar || '';
   fillAvatar($('avatar-preview'), account?.displayAvatar, '头像');
   $('restore-avatar').disabled = account?.avatarMode !== 'custom';
@@ -166,6 +167,10 @@ $('archive').addEventListener('click', () => invoke(window.coze.archive(state.se
 $('clear-account-data').addEventListener('click', async () => {
   const id = editing; if (!id) return;
   try { await closeEditor(); await invoke(window.coze.clearAccountData(id)); } catch { /* invoke displays the error. */ }
+});
+$('delete-account').addEventListener('click', async () => {
+  const id = editing; if (!id) return;
+  try { await closeEditor(); await invoke(window.coze.deleteAccount(id)); } catch { /* invoke displays the error. */ }
 });
 $('pause').addEventListener('click', () => invoke(window.coze.pause(state.selected)).catch(() => {}));
 $('resume').addEventListener('click', () => invoke(window.coze.select(state.selected)).catch(() => {}));

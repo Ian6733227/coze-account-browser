@@ -56,7 +56,7 @@ else {
     const handle = (name, fn) => ipcMain.handle(`coze:${name}`, async (event, payload) => {
       if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== shellURL) throw new Error('不允许访问。');
       try {
-        if (browser.overlay && ['select','open-all','sidebar','archive','pause','clear-account-data','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
+        if (browser.overlay && ['select','open-all','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
         return { ok: true, value: await fn(payload) };
       } catch (err) { notify.flush(); return { ok: false, error: err.message || '操作未完成。' }; }
     });
@@ -95,6 +95,18 @@ else {
           detail: '会关闭这个账号的全部网页，清除此入口的网站登录、缓存及网站本机数据和同步昵称头像。需要重新登录，未保存内容可能丢失。保留入口名称、备注和自定义头像；其他账号、已下载文件和云端内容不受影响。此操作不可撤销。',
           buttons: ['取消', '清除登录资料'], defaultId: 0, cancelId: 0, noLink: true });
         if (result.response === 1) { requireCurrent(browser, id); await browser.clearAccountData(id); }
+      } finally { browser.setOverlay(false); }
+    });
+    handle('delete-account', async id => {
+      requireCurrent(browser, id); browser.assertAvailable(browser.entries.get(id));
+      const account = browser.state().accounts.find(a => a.id === id);
+      const number = store.accounts.findIndex(a => a.id === id) + 1;
+      browser.setOverlay(true);
+      try {
+        const result = await dialog.showMessageBox(win, { type: 'warning', message: `删除「${account.displayName}」账号入口？`,
+          detail: `账号编号 ${number}。会关闭该入口的全部网页，清除它在本机的网站登录和网站数据，并从账号列表移除。以后添加需要重新登录。不会注销扣子网站账号，也不影响其他入口、已下载文件或云端内容。未保存内容可能丢失，此操作不可撤销。`,
+          buttons: ['取消', '删除账号并清除登录资料'], defaultId: 0, cancelId: 0, noLink: true });
+        if (result.response === 1) { requireCurrent(browser, id); await browser.deleteAccount(id); }
       } finally { browser.setOverlay(false); }
     });
     handle('navigation', action => { if (!['back','forward','reload','home','zoom-in','zoom-out','zoom-reset'].includes(action)) throw new Error('无效操作。'); browser.navigate(action); });

@@ -5,6 +5,27 @@ const vm = require('node:vm'), { EventEmitter } = require('node:events');
 const { Store } = require('../src/store.cjs');
 const { dispatcher } = require('../src/control.cjs');
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
+test('delete keeps the entry on clear failure and reports a list-save failure after clearing precisely',async t=>{
+ const {browser,store}=fixture(t),id=store.accounts[0].id;browser.select(id);const entry=browser.entries.get(id);
+ entry.session.clearData=async()=>{throw new Error('synthetic clear failure');};entry.session.clearAuthCache=async()=>{};
+ await assert.rejects(browser.deleteAccount(id),/清除未完成/);assert.equal(store.get(id).id,id);assert.equal(browser.entries.has(id),true);
+ entry.session.clearData=async()=>{};const remove=store.remove;store.remove=()=>{throw new Error('synthetic metadata failure');};
+ await assert.rejects(browser.deleteAccount(id),e=>e.code==='ACCOUNT_REMOVE_FAILED'&&e.message.includes('登录资料已清除'));
+ assert.equal(store.get(id).id,id);store.remove=remove;await browser.deleteAccount(id);assert.throws(()=>store.get(id));assert.equal(browser.entries.has(id),false);
+});
+test('delete timeout retains its entry even when late native clearing succeeds',async t=>{
+ const {browser,store}=fixture(t),id=store.accounts[0].id;browser.select(id);const entry=browser.entries.get(id),gate=deferred();
+ browser.saveTimeout=5;browser.closeTimeout=5;browser.clearTimeout=5;
+ entry.session.clearData=()=>gate.promise;entry.session.clearAuthCache=async()=>{};
+ await assert.rejects(browser.deleteAccount(id),{code:'CLEAR_TIMEOUT'});assert.equal(store.get(id).id,id);assert.throws(()=>browser.select(id),{code:'ACCOUNT_CLEARING'});
+ const pending=entry.clearing;gate.resolve();await pending;assert.equal(store.get(id).id,id);assert.equal(entry.clearing,null);
+});
+test('deleting last account leaves an empty usable browser and has no post-commit UI write',async t=>{
+ const {browser,store}=fixture(t),id=store.accounts[0].id;for(const a of store.accounts.slice(1))store.remove(a.id);
+ browser.select(id);const entry=browser.entries.get(id);entry.session.clearData=async()=>{};entry.session.clearAuthCache=async()=>{};
+ const remove=store.remove.bind(store);store.remove=value=>{remove(value);store.writeUI=()=>{throw new Error('no write allowed after deletion commit');};};
+ await browser.deleteAccount(id);assert.deepEqual(store.accounts,[]);assert.equal(browser.selected,null);assert.equal(browser.state().accounts.length,0);assert.equal(browser.entries.size,0);
+});
 function fixture(t) {
   const sessions = new Map();
   class Contents extends EventEmitter {

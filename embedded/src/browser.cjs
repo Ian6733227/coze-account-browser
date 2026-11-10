@@ -268,6 +268,20 @@ class AccountBrowser {
     pending.then(release, release); this.onUpdate(true);
     return deadline(pending, this.saveTimeout + this.closeTimeout + this.clearTimeout, 'CLEAR_TIMEOUT', '清除尚未确认；请等待这个账号处理结束，其他账号可继续使用。');
   }
+  async deleteAccount(id) {
+    // Keep the entry discoverable until its session clearing is confirmed.
+    // A failure or timeout must not remove the only way to retry clearing it.
+    await this.clearAccountData(id);
+    try { this.store.remove(id); }
+    catch (cause) {
+      throw Object.assign(new Error('登录资料已清除，但账号入口未能删除。请重试删除；其他账号未受影响。'), {code:'ACCOUNT_REMOVE_FAILED',cause});
+    }
+    this.entries.delete(id); this.profileChecks.delete(id); this.profileErrors.delete(id);
+    if (this.selected === id) this.selected = this.store.accounts.find(a => !a.archived)?.id || null;
+    // Do not open a new website or perform another fallible metadata write
+    // after deletion. Already-running next accounts can be shown immediately.
+    this.display(); this.onUpdate(true);
+  }
   state() {
     return { selected: this.selected, sidebarCollapsed: this.store.sidebarCollapsed, accounts: this.store.accounts.map(a => {
       const entry = this.entries.get(a.id), tabs = entry?.tabs || [];

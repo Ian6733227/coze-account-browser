@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('coze', Object.freeze({
   archive: id => ipcRenderer.invoke('coze:archive', id),
   pause: id => ipcRenderer.invoke('coze:pause', id),
   clearAccountData: id => ipcRenderer.invoke('coze:clear-account-data', id),
+  deleteAccount: id => ipcRenderer.invoke('coze:delete-account', id),
   navigation: action => ipcRenderer.invoke('coze:navigation', action),
   tab: id => ipcRenderer.invoke('coze:tab', id),
   closeTab: () => ipcRenderer.invoke('coze:close-tab'),

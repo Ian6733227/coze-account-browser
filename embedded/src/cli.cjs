@@ -4,6 +4,7 @@ const os = require('node:os'), path = require('node:path');
 const { spawn } = require('node:child_process');
 const { request, endpoint } = require('./control-transport.cjs');
 const version = require('../package.json').version;
+const { checkedVersion } = require('./compatibility.cjs');
 const HELP = `coze-browser — 扣子账号浏览器本机控制 CLI ${version}
   coze-browser launch                         启动应用并等待控制通道就绪
   coze-browser accounts                       列出账号编号、固定ID、名称与运行状态
@@ -43,6 +44,14 @@ function parse(args) {
   return {command,params,root,timeout};
 }
 async function launch(root,timeout) {
+  try { return checkedVersion(await request(root,'status',{},Math.min(1000,timeout)),version); }
+  catch (error) { if (!['ENOENT','ECONNREFUSED'].includes(error.code)) throw error; }
+  // An available private endpoint already proves this profile is running.
+  // Starting another GUI here can race a quit and unexpectedly reopen it.
+  try { return checkedVersion(await request(root,'status',{},Math.min(1000,timeout)),version); }
+  catch (error) {
+    if (!['ENOENT','ECONNREFUSED'].includes(error.code)) throw error;
+  }
   const appPath = process.env.COZE_BROWSER_APP || path.join(os.homedir(),'Applications/扣子账号浏览器.app');
   await new Promise((resolve,reject) => {
     const custom = root !== path.join(os.homedir(),'Library/Application Support/CozeAccountsBrowser');
@@ -53,8 +62,8 @@ async function launch(root,timeout) {
   });
   const deadline=Date.now()+timeout;
   while (Date.now()<deadline) {
-    try { const result=await request(root,'status',{},Math.min(1000,deadline-Date.now())); if(result.ok)return result; }
-    catch {}
+    try { const result=await request(root,'status',{},Math.min(1000,deadline-Date.now())); if(result.ok)return checkedVersion(result,version); }
+    catch (error) { if (error.code === 'VERSION_MISMATCH') throw error; }
     await new Promise(resolve => setTimeout(resolve,150));
   }
   throw new Error('控制接口未就绪；旧版应用正在运行时，请正常退出后再launch。');
@@ -67,6 +76,7 @@ async function main(args = process.argv.slice(2)) {
   if(command==='version'){process.stdout.write(JSON.stringify({ok:true,result:{version}})+'\n');return;}
   try {
     const reply = command==='launch' ? await launch(root,timeout) : command==='endpoint' ? {ok:true,result:{protocolVersion:1,...endpoint(root)}} : await request(root,command,params,timeout);
+    if (command === 'status') checkedVersion(reply,version);
     process.stdout.write(JSON.stringify(reply)+'\n'); if (!reply.ok) process.exitCode=1;
   } catch(error) {
     process.stdout.write(JSON.stringify({ok:false,error:{code:error.code || 'CONNECTION_FAILED',message:['ENOENT','ECONNREFUSED'].includes(error.code) ? '浏览器控制接口未运行，请先执行coze-browser launch。' : error.message}})+'\n');process.exitCode=1;

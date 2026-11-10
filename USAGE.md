@@ -1,70 +1,48 @@
-# 扣子账号浏览器 · 使用与开发说明
+# 使用与开发说明
 
-[返回产品介绍](README.md) · [下载最新版](https://github.com/Ian6733227/coze-account-browser/releases/latest)
+请先阅读 [介绍与安装](README.md)；应用内“帮助与视频教程”可以离线打开。
 
-## 使用方式
+## 日常使用
 
-- 点击左侧头像切换账号，或用 `⌘1` 至 `⌘9` 切换前九个未隐藏入口。
-- 收起侧栏后仅保留头像与状态；悬停查看名称。
-- “同步头像昵称”尝试读取当前登录账号自己的昵称和头像；也可以编辑名称、备注与自定义头像。
-- “打开全部账号”让所有未隐藏账号的网页保持打开。绿点仅表示页面进程状态，不证明已经登录或 Agent 任务执行成功。
-- “停用”表示隐藏入口，网页可能继续后台运行；当前选中入口仍保留，方便恢复。勾选“显示已停用账号”可找回其他入口。
-- “暂停网页”会关闭该账号页面，可能中断任务；登录资料保留。
-- 刷新使用 `⌘R` 或 macOS“网页”菜单。普通退出直接关闭应用，不再弹确认框；网页停止运行，登录资料保留。
+选择左侧账号入口，在右侧扣子网页分别登录。点击“＋”添加更多入口；点击头像或 ⌘1–⌘9 切换。快捷键使用完整列表的固定编号，隐藏入口仍占编号。
 
-## 其他软件直接控制
+账号名称、备注、头像可以自定义。自动同步得到的昵称和头像用于辨认入口，实际登录身份以网页为准。隐藏只移走侧栏入口，勾选“显示已隐藏账号”后可恢复；隐藏不会删除登录资料。
 
-内置 CLI 通过本机 Unix socket 通信，不需要 Computer Use。安装到“应用程序”后可直接调用：
+“全部打开”打开多个入口；切换时其他已打开网页继续后台运行。“关闭网页”保留登录资料，但可能中断本地页面工作。清除登录资料会要求具名确认，仅用于明确要退出该入口时。
 
-```sh
-"/Applications/扣子账号浏览器.app/Contents/Resources/app/bin/coze-browser" launch
-"/Applications/扣子账号浏览器.app/Contents/Resources/app/bin/coze-browser" accounts
-"/Applications/扣子账号浏览器.app/Contents/Resources/app/bin/coze-browser" switch 2
-"/Applications/扣子账号浏览器.app/Contents/Resources/app/bin/coze-browser" open https://www.coze.cn/ --account 2
-```
-
-详细说明见 [CONTROL-CLI.md](CONTROL-CLI.md)。目前可以切换账号、打开网页和查询状态，**尚未接入选择 Agent、下发任务、获取进度、取消任务或取回结果的协议**。
+普通退出直接关闭应用和本地网页。重启恢复最近选中账号及允许的页面路径，地址中的 query/hash 不会保存，不自动重开全部后台账号。登录有效期和服务端任务状态由扣子决定。
 
 ## 隐私与数据
 
-公开源码和下载包不包含作者的登录状态、个人头像、真实账号列表或聊天记录。使用者需要自行登录。
+默认资料在 `~/Library/Application Support/CozeAccountsBrowser`。账号入口 ID 与各自 Sessions 目录对应，不能通过改昵称交换身份。升级应用时保留整个资料目录，不要把它与其他使用者的目录混用。
 
-使用数据保存在 `~/Library/Application Support/CozeAccountsBrowser/`，包括账号显示设置和各自的 Chromium Session。不要把这个目录提交到 GitHub、发给别人或附在问题报告里。清空该目录会丢失本机资料；源码备份不等于账号资料备份。
+程序本身不提供云同步账号资料的服务。访问扣子时仍会与扣子网站通信；登录流程由使用者完成。不要将 accounts.json、ui-state.json、Sessions、Cookie、Token 或聊天内容发到 Issues。报错可提供版本、系统版本和脱敏步骤。
 
-登录与网页操作会连接扣子及其相关服务。账号之间使用独立的浏览器 Session，但仍属于同一个 macOS 用户和应用；不是操作系统级别的独立容器。首次运行可继承旧版本的账号名称与备注，不迁移 Chrome/Brave 的登录资料。
+遇到资料异常先正常退出，避免继续写入。参考[恢复与只读检查](embedded/RECOVERY.md)，不要通过删除配置、复制陌生账号目录或批量清理文件尝试修复。
 
-## 已知限制
+## CLI 和 IPC
 
-- 重启默认打开第一个未隐藏账号，不恢复上次的账号与页面位置。
-- 头像同步依赖网站当前接口，网站升级后可能需要调整。
-- 默认拒绝摄像头、麦克风与位置权限。真实第三方登录、上传下载和长期后台任务没有完整验收。
-- 未做与 Brave 相同负载的内存对比，不能承诺更省内存。
+直接调用应用内 `Contents/Resources/app/bin/coze-browser` 即可。默认应用路径为 `~/Applications/扣子账号浏览器.app`；其他路径可通过 `COZE_BROWSER_APP` 指定。系统 PATH 中的同名命令需要另行安装，并不是打开应用就会自动创建。
 
-## 从源码运行与构建
+详细命令、允许 URL、超时、错误及数据边界见 [CONTROL-CLI.md](CONTROL-CLI.md)。这是同一 macOS 用户的本机控制入口，没有跨机控制或扣子 Agent 调度接口。不要把 socket 暴露到网络。
 
-使用 Node.js 24 LTS；本次验证使用 Node.js 24.21.0。Electron 固定为 44.5.1。构建脚本面向 Apple Silicon macOS。
+## 从源码检查
+
+需要 Node.js 24；Apple Silicon macOS 上可构建当前安装包。
 
 ```sh
-git clone https://github.com/Ian6733227/coze-account-browser.git
-cd coze-account-browser/embedded
+cd embedded
 npm ci
 npm test
 npm run test:browser
 npm run package
-npm run test:control-launch
-npm start
+npm run test:package
 ```
 
-测试使用匿名临时资料。开发时也可使用独立资料目录：
+Electron 版本由 package-lock.json 锁定；打包脚本核对实际运行时并附上许可证。测试只应使用临时的隔离资料，不连接真实账号。`test:brave-baseline` 不属于普通发布检查，请先单独明确测试环境。
 
-```sh
-npm start -- --data-root /tmp/coze-browser-development
-```
+## 已知限制
 
-打包输出在 `embedded/dist/`，不进入源码 Git。首次公开版本来自现有 2.2.0 程序的干净打包快照，运行时代码保持一致；验证细节见 [RELEASE-CHECK.md](RELEASE-CHECK.md)。原来的内部开发历史和业务记录未纳入此公开仓库。
+没有完成真实账号验收、Brave 同负载对比或 Apple 公证。未提供其他桌面平台安装包。保存使用临时文件加 rename，未增加 fsync 断电保证；clearProfile 的两个文件不是事务。配置缺失且已有 Sessions 时，仍存在原有默认列表初始化风险，请先按恢复说明排查。
 
-## 来源与反馈
-
-本项目使用 Electron/Chromium。运行时第三方许可随应用包附带，图标来源见 [assets/README.md](embedded/assets/README.md)。扣子/Coze 名称与图标归各自权利人；公开本工具不表示获得官方背书。
-
-可在 [Issues](https://github.com/Ian6733227/coze-account-browser/issues) 提交问题，请提供系统版本、应用版本和脱敏后的复现步骤，不要附登录资料或完整用户数据目录。
+本项目基于 Electron/Chromium，名称与第三方图标的权利归原权利人；图标来源见[资源说明](embedded/assets/README.md)。

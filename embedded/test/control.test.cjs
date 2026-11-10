@@ -6,6 +6,7 @@ const {Store}=require('../src/store.cjs');
 const {dispatcher,resolveAccount,pageURL}=require('../src/control.cjs');
 const {createServer,request,endpoint,LIMIT}=require('../src/control-transport.cjs');
 const {parse}=require('../src/cli.cjs');
+const vm=require('node:vm');
 function fixture(t) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'coze-control-test-')),store=new Store(root);
   t.after(()=>{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(endpointDirectory,{recursive:true,force:true});});
@@ -91,4 +92,30 @@ test('CLI parser accepts selectors and isolated roots and rejects missing/unknow
   assert.equal(parse(['open','https://coze.cn/','--account','5','--json']).params.account,'5');
   assert.equal(parse(['sidebar','collapse']).params.collapsed,true);
   for(const args of [['switch'],['status','--account','2'],['open','https://coze.cn/','extra'],['status','--timeout','0'],['eval','script'],['status','--data-root']])assert.throws(()=>parse(args));
+});
+test('new CLI status and launch fail explicitly on an existing older version without changing accounts', async t => {
+  const {root,browser,dispatch}=fixture(t);const api=await createServer(root,dispatch);t.after(()=>api.close());const selected=browser.selected;
+  for(const command of ['status','launch']){
+    await assert.rejects(execFile(process.execPath,[path.join(__dirname,'../src/cli.cjs'),command,'--data-root',root]),error=>{
+      assert.equal(error.code,1);const reply=JSON.parse(error.stdout);assert.equal(reply.error.code,'VERSION_MISMATCH');assert.match(reply.error.message,/synthetic/);return true;
+    });
+  }
+  assert.equal(browser.selected,selected);
+});
+test('a server appearing on the second launch probe is version checked before reporting success', async () => {
+  const expected=require('../package.json').version;
+  for(const actual of ['2.3.1','99.0.0',expected]) {
+    let probes=0;const output=[],processStub={argv:[],env:{},stdout:{write:s=>output.push(s)},exitCode:0};
+    const mod={exports:{}};
+    const filename=path.join(__dirname,'../src/cli.cjs');
+    const context={module:mod,exports:mod.exports,__dirname:path.dirname(filename),process:processStub,setTimeout,clearTimeout,
+      require:name=>name==='./control-transport.cjs'?{request:async()=>{if(++probes===1)throw Object.assign(new Error('absent'),{code:'ENOENT'});return {ok:true,result:{version:actual}};},endpoint:()=>({})}:
+      name==='node:child_process'?{spawn:()=>{throw new Error('must not launch another GUI')}}:
+      name.startsWith('../')||name.startsWith('./')?require(path.resolve(path.dirname(filename),name)):require(name)};
+    vm.runInNewContext(fs.readFileSync(filename,'utf8'),context,{filename});
+    await mod.exports.main(['launch']);const reply=JSON.parse(output.join(''));
+    assert.equal(probes,2);assert.equal(reply.ok,actual===expected);
+    if(actual!==expected){assert.equal(reply.error.code,'VERSION_MISMATCH');assert.equal(processStub.exitCode,1);}
+    else assert.equal(processStub.exitCode,0);
+  }
 });

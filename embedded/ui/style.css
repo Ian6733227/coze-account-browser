@@ -224,3 +224,23 @@ dialog input::placeholder, dialog textarea::placeholder { color: #858580; }
   .topline #status:not(.error) { display: none; }
   .topline button { padding: 5px 7px; }
 }
+
+#platform-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 4px;
+  margin: -3px -4px;
+  border-color: transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+#platform-switch:hover { background: #e8e8e4; }
+#platform-name { white-space: nowrap; }
+.platform-chevron { font-size: 14px; color: var(--muted); }
+#account-platform { font: inherit; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; color: inherit; background: white; }
+.sidebar-collapsed .list-heading { flex-direction: column; gap: 7px; }
+.sidebar-collapsed .list-heading > div { display: block; }
+.sidebar-collapsed .list-heading h1 { margin: 0; }
+.sidebar-collapsed .list-heading p, .sidebar-collapsed #platform-name { display: none; }

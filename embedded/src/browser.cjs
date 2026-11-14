@@ -2,13 +2,14 @@
 const { WebContentsView, session } = require('electron');
 const { randomUUID } = require('node:crypto');
 const { trustedPage, PROFILE_SCRIPT, fetchAvatar, isDefaultAvatar } = require('./identity.cjs');
+const { platforms, matchesPlatform } = require('./platforms.cjs');
 const { deadline, flushEntry, closeTabs } = require('./closing.cjs');
 const LEFT = 232, COMPACT_LEFT = 76, TOP = 43, FOOT = 26;
 const safeURL = value => { try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; } };
 class AccountBrowser {
   constructor(win, store, home = 'https://www.coze.cn/') {
     this.win = win; this.store = store; this.home = home; this.entries = new Map();
-    this.selected = null; this.attached = null; this.overlay = false; this.onUpdate = () => {};
+    this.selected = null; this.lastSelectedByPlatform = new Map(); this.attached = null; this.overlay = false; this.onUpdate = () => {};
     this.disposing = false; this.pausing = new Set();
     this.saveTimeout = 5000; this.closeTimeout = 5000; this.clearTimeout = 10000;
     this.profileChecks = new Map(); this.profileErrors = new Map();
@@ -77,9 +78,9 @@ class AccountBrowser {
     wc.on('did-navigate-in-page', navigated);
     wc.on('page-title-updated', () => this.onUpdate());
     wc.on('did-fail-load', (_e, code, _description, _url, mainFrame) => {
-      if (mainFrame && code !== -3) { tab.error = `网页加载失败（${code}），请重新加载或回扣子首页。`; this.display(); this.onUpdate(true); }
+      if (mainFrame && code !== -3) { tab.error = `网页加载失败（${code}），请重新加载或返回平台首页。`; this.display(); this.onUpdate(true); }
     });
-    wc.on('render-process-gone', () => { tab.crashed = true; tab.error = '网页进程退出，请重新加载或回扣子首页。'; this.display(); this.onUpdate(true); });
+    wc.on('render-process-gone', () => { tab.crashed = true; tab.error = '网页进程退出，请重新加载或返回平台首页。'; this.display(); this.onUpdate(true); });
     wc.on('destroyed', () => {
       if (!this.win.isDestroyed() && this.win.contentView.children.includes(view)) this.win.contentView.removeChildView(view);
       entry.tabs = entry.tabs.filter(t => t !== tab);
@@ -89,7 +90,11 @@ class AccountBrowser {
     });
     return tab;
   }
-  ensure(id, initialURL = this.home) {
+  homeFor(id) {
+    const platform = this.store.get(id).platform || 'coze';
+    return platform === 'coze' ? this.home : platforms[platform].home;
+  }
+  ensure(id, initialURL = this.homeFor(id)) {
     const entry = this.entry(id);
     this.assertAvailable(entry);
     if (!entry.tabs.some(t => t.primary && !t.view.webContents.isDestroyed())) {
@@ -100,10 +105,34 @@ class AccountBrowser {
     }
     return entry;
   }
-  select(id, initialURL = this.home) { this.ensure(id, initialURL); this.selected = id; this.rememberSelection(); this.display(); this.onUpdate(true); this.syncProfile(id).catch(() => {}); }
+  select(id, initialURL) {
+    const account = this.store.get(id);
+    this.assertAvailable(this.entries.get(id));
+    if (!matchesPlatform(account, this.store.platformView)) this.store.setPlatformView(account.platform || 'coze');
+    this.ensure(id, initialURL);
+    this.selected = id;
+    this.lastSelectedByPlatform.set(account.platform || 'coze', id);
+    this.rememberSelection(); this.display(); this.onUpdate(true); this.syncProfile(id).catch(() => {});
+  }
+  setPlatformView(view) {
+    this.store.setPlatformView(view);
+    const current = this.store.accounts.find(a => a.id === this.selected);
+    if (!current || !matchesPlatform(current, view)) {
+      const accounts = this.store.orderedAccounts().filter(a => !a.archived && matchesPlatform(a, view));
+      const previous = accounts.find(a => a.id === this.lastSelectedByPlatform.get(view));
+      const next = [previous, ...accounts].find(a => a && !this.accountBusy(a.id));
+      if (next) { this.select(next.id); return; }
+      this.selected = null;
+    }
+    this.display(); this.onUpdate(true);
+  }
+  accountBusy(id) {
+    const entry = this.entries.get(id);
+    return entry?.closing || entry?.clearing || entry?.flushing;
+  }
   openStartupAccounts() {
     const selection = this.store.startupSelection();
-    if (selection) this.select(selection.accountId, selection.url || this.home);
+    if (selection) this.select(selection.accountId, selection.url || undefined);
     this.openAll();
   }
   rememberSelection() {
@@ -113,6 +142,9 @@ class AccountBrowser {
     this.store.setResume(this.selected, current && current !== 'about:blank' ? current : tab?.requestedURL);
   }
   openPage(id,url) {
+    const account = this.store.get(id);
+    this.assertAvailable(this.entries.get(id));
+    if (!matchesPlatform(account, this.store.platformView)) this.store.setPlatformView(account.platform || 'coze');
     const entry = this.ensure(id);
     let tab = entry.tabs.find(t => (t.requestedURL === url && t.view.webContents.isLoading()) || t.view.webContents.getURL() === url);
     const created = !tab;
@@ -121,11 +153,11 @@ class AccountBrowser {
       tab = this.makeTab(entry); tab.requestedURL = url;
       tab.view.webContents.loadURL(url).catch(() => {});
     }
-    entry.active = tab.id; this.selected = id; this.rememberSelection(); this.display(); this.onUpdate(true);
+    entry.active = tab.id; this.select(id);
     return {tab,created};
   }
   async syncProfile(id, force = false) {
-    this.store.get(id);
+    if ((this.store.get(id).platform || 'coze') !== 'coze') return;
     const entry = this.entries.get(id), tab = entry?.tabs.find(t => t.primary), wc = tab?.view.webContents;
     if (entry?.closing || entry?.flushing || entry?.clearing || this.disposing) {
       if (force) this.assertAvailable(entry);
@@ -158,12 +190,13 @@ class AccountBrowser {
       if (force) throw new Error(message);
     } finally { check.busy = false; this.onUpdate(); }
   }
-  openAll() {
-    const accounts = this.store.accounts.filter(a => !a.archived);
+  openAll(view = 'all') {
+    const accounts = this.store.accounts.filter(a => !a.archived && matchesPlatform(a, view));
     // Validate the whole action before opening any account.
     for (const a of accounts) this.assertAvailable(this.entries.get(a.id));
     for (const a of accounts) this.ensure(a.id);
-    if (!this.selected && accounts.length) this.selected = accounts[0].id;
+    const first = accounts.find(a => matchesPlatform(a, this.store.platformView));
+    if (!this.selected && first) { this.select(first.id); return; }
     this.rememberSelection();
     this.display(); this.onUpdate();
   }
@@ -208,7 +241,7 @@ class AccountBrowser {
     if (action === 'back' && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
     else if (action === 'forward' && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
     else if (action === 'reload') { tab.crashed = false; wc.reload(); }
-    else if (action === 'home') wc.loadURL(this.home).catch(() => {});
+    else if (action === 'home') wc.loadURL(this.homeFor(this.selected)).catch(() => {});
     else if (action === 'zoom-in') wc.setZoomFactor(Math.min(2, wc.getZoomFactor() + .1));
     else if (action === 'zoom-out') wc.setZoomFactor(Math.max(.5, wc.getZoomFactor() - .1));
     else if (action === 'zoom-reset') wc.setZoomFactor(1);
@@ -278,21 +311,21 @@ class AccountBrowser {
       throw Object.assign(new Error('登录资料已清除，但账号入口未能删除。请重试删除；其他账号未受影响。'), {code:'ACCOUNT_REMOVE_FAILED',cause});
     }
     this.entries.delete(id); this.profileChecks.delete(id); this.profileErrors.delete(id);
-    if (this.selected === id) this.selected = this.store.accounts.find(a => !a.archived)?.id || null;
+    if (this.selected === id) this.selected = this.store.orderedAccounts().find(a => !a.archived && matchesPlatform(a, this.store.platformView))?.id || null;
     // Do not open a new website or perform another fallible metadata write
     // after deletion. Already-running next accounts can be shown immediately.
     this.display(); this.onUpdate(true);
   }
   state() {
-    return { selected: this.selected, sidebarCollapsed: this.store.sidebarCollapsed, sidebarOrder: this.store.sidebarOrder, accounts: this.store.accounts.map(a => {
+    return { selected: this.selected, sidebarCollapsed: this.store.sidebarCollapsed, sidebarOrder: this.store.sidebarOrder, platformView: this.store.platformView, platforms, accounts: this.store.accounts.map(a => {
       const entry = this.entries.get(a.id), tabs = entry?.tabs || [];
-      return { ...a, displayName: a.useProfileName && a.profile.name ? a.profile.name : a.name,
+      return { ...a, platform: a.platform || 'coze', displayName: a.useProfileName && a.profile.name ? a.profile.name : a.name,
         displayAvatar: a.avatarMode === 'custom' ? a.customAvatar : isDefaultAvatar(a.profile.avatar) ? '' : a.profile.avatar,
         identityStatus: this.profileChecks.get(a.id)?.confirmedAt ? 'confirmed' : 'unconfirmed', identityCheckedAt: this.profileChecks.get(a.id)?.confirmedAt || null,
         syncing: this.profileChecks.get(a.id)?.busy === true, running: tabs.length > 0, clearing: Boolean(entry?.clearing), pausing: Boolean(entry?.closing || entry?.flushing || entry?.clearing), paused: entry?.paused === true && tabs.length === 0, loading: tabs.some(t => t.view.webContents.isLoading()),
         crashed: tabs.find(t => t.id === entry.active)?.crashed === true, pageError: tabs.find(t => t.id === entry.active)?.error || '', backgroundError: tabs.some(t => t.id !== entry.active && (t.crashed || t.error)) };
     }), tabs: (this.entries.get(this.selected)?.tabs || []).map(t => ({
-      id: t.id, primary: t.primary, title: t.primary ? '扣子' : (t.view.webContents.getTitle() || '新页面').slice(0, 60), active: t.id === this.entries.get(this.selected).active
+      id: t.id, primary: t.primary, title: t.primary ? platforms[this.store.get(this.selected).platform || 'coze'].label : (t.view.webContents.getTitle() || '新页面').slice(0, 60), active: t.id === this.entries.get(this.selected).active
     })), error: this.activeTab()?.error || this.entries.get(this.selected)?.lifecycleError || this.profileErrors.get(this.selected) || this.startupWarning || '', host: (() => { try { return new URL(this.activeTab()?.view.webContents.getURL()).hostname; } catch { return ''; } })() };
   }
   async dispose() {

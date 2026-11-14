@@ -144,3 +144,23 @@ test('sidebar moves persist across restart and preserve hidden positions, IDs an
   const added = reopened.add('新账号');
   assert.equal(reopened.orderedAccounts().at(-1).id, added.id);
 });
+
+test('platform metadata is backward compatible and view changes preserve the old account store', t => {
+  const root = temporary(t), store = new Store(root);
+  const original = store.accounts[0], originalPath = store.sessionPath(original.id);
+  const account = store.add('千问办公测试', '', true, 'qwenwork');
+  const stored = fs.readFileSync(store.file, 'utf8');
+  store.setPlatformView('qwenwork');
+  store.setResume(account.id, 'https://qwenwork.cn/app/');
+  const reopened = new Store(root);
+  assert.equal(reopened.platformView, 'qwenwork');
+  assert.deepEqual(reopened.get(original.id), original);
+  assert.equal(reopened.sessionPath(original.id), originalPath);
+  assert.deepEqual(reopened.startupSelection(), { accountId: account.id, url: 'https://qwenwork.cn/app/' });
+  assert.equal(reopened.get(account.id).useProfileName, false);
+  assert.equal(fs.readFileSync(store.file, 'utf8'), stored);
+  assert.throws(() => reopened.add('无效平台', '', false, '__proto__'), /平台/);
+  assert.throws(() => reopened.setPlatformView('__proto__'), /平台/);
+  reopened.setPlatformView('doubao');
+  assert.equal(reopened.startupSelection(), null);
+});

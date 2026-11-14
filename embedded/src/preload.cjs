@@ -2,11 +2,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('coze', Object.freeze({
   state: () => ipcRenderer.invoke('coze:state'),
+  platformMenu: () => ipcRenderer.invoke('coze:platform-menu'),
   sidebar: collapsed => ipcRenderer.invoke('coze:sidebar', collapsed),
   accountMenu: (id, x, y, showArchived) => ipcRenderer.invoke('coze:account-menu', { id, x, y, showArchived }),
   select: id => ipcRenderer.invoke('coze:select', id),
   openAll: () => ipcRenderer.invoke('coze:open-all'),
-  add: (name, note, useProfileName) => ipcRenderer.invoke('coze:add', { name, note, useProfileName }),
+  add: (name, note, useProfileName, platform) => ipcRenderer.invoke('coze:add', { name, note, useProfileName, platform }),
   edit: (id, name, note, useProfileName, avatarMode, customAvatar) => ipcRenderer.invoke('coze:edit', { id, name, note, useProfileName, avatarMode, customAvatar }),
   syncProfile: id => ipcRenderer.invoke('coze:sync-profile', id),
   chooseAvatar: id => ipcRenderer.invoke('coze:choose-avatar', id),

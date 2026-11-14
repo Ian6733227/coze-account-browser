@@ -14,6 +14,7 @@ async function until(fn, label) {
 async function ready(wc) { await until(() => !wc.isLoading() && wc.getURL().startsWith('http:'), 'local page load'); }
 async function probe(wc) { return wc.executeJavaScript('({cookie:document.cookie,stored:localStorage.getItem("identity"),node:typeof require,bridge:typeof window.coze})'); }
 exports.run = async ctx => {
+  if (process.argv.includes('--platform-acceptance')) return require('./platform-acceptance-test.cjs').run(ctx);
   if (process.argv.includes('--delete-acceptance')) return require('./delete-acceptance-test.cjs').run(ctx);
   // Optional synthetic suites share the same --self-test entry point as the regression below.
   if (process.argv.includes('--mock-acceptance')) return require('./mock-acceptance-test.cjs').run(ctx);

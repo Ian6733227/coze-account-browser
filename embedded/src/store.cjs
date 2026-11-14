@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { safeResumeURL } = require('./resume.cjs');
+const { knownPlatform, matchesPlatform } = require('./platforms.cjs');
 const { atomicWrite } = require('./atomic-write.cjs');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 function imageValue(value) { return typeof value === 'string' && value.length <= 160000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(value) ? value : ''; }
@@ -14,7 +15,7 @@ function validate(accounts) {
       throw new Error('账号记录包含无效名称或重复 ID，原文件已保留。');
     }
     seen.add(a.id.toLowerCase());
-    return { id: a.id, name: a.name.trim(), note: typeof a.note === 'string' ? a.note.slice(0, 300) : '', archived: a.archived === true,
+    return { id: a.id, ...(knownPlatform(a.platform) && a.platform !== 'coze' ? { platform: a.platform } : {}), name: a.name.trim(), note: typeof a.note === 'string' ? a.note.slice(0, 300) : '', archived: a.archived === true,
       useProfileName: typeof a.useProfileName === 'boolean' ? a.useProfileName : /^扣子账号 \d+$/.test(a.name.trim()),
       avatarMode: a.avatarMode === 'custom' ? 'custom' : 'sync', customAvatar: imageValue(a.customAvatar),
       profile: { name: typeof a.profile?.name === 'string' ? a.profile.name.trim().slice(0,80) : '', avatar: imageValue(a.profile?.avatar),
@@ -30,6 +31,7 @@ class Store {
     let ui = {};
     try { ui = JSON.parse(fs.readFileSync(this.uiFile, 'utf8')) || {}; } catch { /* Old or malformed UI state is optional. */ }
     this.sidebarCollapsed = ui.sidebarCollapsed === true;
+    this.platformView = knownPlatform(ui.platformView) ? ui.platformView : 'all';
     if (fs.existsSync(this.file)) {
       try { this.accounts = validate(JSON.parse(fs.readFileSync(this.file, 'utf8'))); }
       catch { throw new Error(`账号列表无法读取，原文件和登录资料已保留。资料目录：${this.root}。请截图此提示联系维护者；不要删除资料目录、移走账号列表后重启，或重新生成账号列表。`); }
@@ -46,7 +48,7 @@ class Store {
     this.sidebarOrder = Array.isArray(ui.sidebarOrder) ? [...new Set(ui.sidebarOrder.filter(id => ids.has(id)))] : [];
     const resume = ui.resume;
     this.resume = resume && this.accounts.some(a => a.id === resume.accountId) ?
-      { accountId: resume.accountId, url: safeResumeURL(resume.url) } : null;
+      { accountId: resume.accountId, url: safeResumeURL(resume.url, this.get(resume.accountId).platform) } : null;
   }
   save(accounts) {
     const normalized = validate(accounts);
@@ -62,8 +64,14 @@ class Store {
     if (typeof value !== 'boolean') throw new Error('侧栏设置不正确。');
     this.writeUI(value, this.resume); this.sidebarCollapsed = value;
   }
-  writeUI(sidebarCollapsed, resume, sidebarOrder = this.sidebarOrder) {
-    atomicWrite(this.uiFile, JSON.stringify({ sidebarCollapsed, resume, sidebarOrder }) + '\n');
+  setPlatformView(view) {
+    if (view !== 'all' && !knownPlatform(view)) throw new Error('请选择有效的平台。');
+    if (view === this.platformView) return;
+    this.writeUI(this.sidebarCollapsed, this.resume, this.sidebarOrder, view);
+    this.platformView = view;
+  }
+  writeUI(sidebarCollapsed, resume, sidebarOrder = this.sidebarOrder, platformView = this.platformView) {
+    atomicWrite(this.uiFile, JSON.stringify({ sidebarCollapsed, resume, sidebarOrder, platformView }) + '\n');
   }
   orderedAccounts() {
     const accounts = new Map(this.accounts.map(account => [account.id, account]));
@@ -71,7 +79,7 @@ class Store {
     return [...order].filter(id => accounts.has(id)).map(id => accounts.get(id));
   }
   sidebarNeighbors(id, showArchived, selected) {
-    const visible = this.orderedAccounts().filter(a => !a.archived || showArchived || a.id === selected);
+    const visible = this.orderedAccounts().filter(a => matchesPlatform(a, this.platformView) && (!a.archived || showArchived || a.id === selected));
     const index = visible.findIndex(a => a.id === id);
     return index < 0 ? {} : { up: visible[index - 1]?.id, down: visible[index + 1]?.id };
   }
@@ -87,17 +95,19 @@ class Store {
     this.sidebarOrder = order;
   }
   setResume(accountId, url) {
-    this.get(accountId);
-    const resume = { accountId, url: safeResumeURL(url) };
+    const account = this.get(accountId);
+    const resume = { accountId, url: safeResumeURL(url, account.platform) };
     if (this.resume?.accountId === resume.accountId && this.resume.url === resume.url) return;
     this.writeUI(this.sidebarCollapsed, resume); this.resume = resume;
   }
   startupSelection() {
-    const account = this.accounts.find(a => a.id === this.resume?.accountId && !a.archived) || this.accounts.find(a => !a.archived);
+    const accounts = this.orderedAccounts().filter(a => !a.archived && matchesPlatform(a, this.platformView));
+    const account = accounts.find(a => a.id === this.resume?.accountId) || accounts[0];
     return account ? { accountId: account.id, url: account.id === this.resume?.accountId ? this.resume.url : null } : null;
   }
-  add(name, note = '', useProfileName = true) {
-    const a = { id: randomUUID(), name, note, archived: false, useProfileName: useProfileName === true };
+  add(name, note = '', useProfileName = true, platform = 'coze') {
+    if (!knownPlatform(platform)) throw new Error('请选择有效的平台。');
+    const a = { id: randomUUID(), name, note, platform, archived: false, useProfileName: platform === 'coze' && useProfileName === true };
     this.save([...this.accounts, a]); return this.accounts.at(-1);
   }
   edit(id, name, note, useProfileName = false, avatarMode, customAvatar) {

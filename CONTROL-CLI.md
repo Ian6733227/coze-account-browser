@@ -82,3 +82,5 @@ socket.on('error', error => console.error(error.message));
 依据：[Node Unix IPC](https://nodejs.org/api/net.html#ipc-support)。
 
 2.3.5：launch的首次、第二次探测及启动后连接均核对版本；旧版实例不会报作新版成功。CLI不提供清除登录资料接口，此操作必须在应用内具名确认。
+
+多平台账号在 `accounts` 和 `status` 结果中有 `platform` 字段。按原来的数字编号、固定 ID 或名称切换账号。扣子仍支持原有页面路径。WorkBuddy、豆包、Aily、千问办公的 `open` 只接受应用内登记的平台首页。

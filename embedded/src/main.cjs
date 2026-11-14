@@ -12,6 +12,7 @@ const { coalesceUpdates } = require('./updates.cjs');
 const { requireCurrent } = require('./actions.cjs');
 const { checkedVersion } = require('./compatibility.cjs');
 const { request } = require('./control-transport.cjs');
+const { platforms } = require('./platforms.cjs');
 const { deadline } = require('./closing.cjs');
 const testing = process.argv.includes('--self-test');
 const rootIndex = process.argv.indexOf('--data-root');
@@ -69,15 +70,27 @@ else {
       if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== shellURL) throw new Error('不允许访问。');
       try {
         if (quitInProgress) throw new Error('浏览器正在退出。');
-        if (browser.overlay && ['account-menu','select','open-all','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
+        if (browser.overlay && ['platform-menu','account-menu','select','open-all','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
         return { ok: true, value: await fn(payload) };
       } catch (err) { notify.flush(); return { ok: false, error: err.message || '操作未完成。' }; }
     });
     handle('state', () => browser.state());
     handle('sidebar', value => browser.setSidebarCollapsed(value));
     handle('select', id => { store.get(id); browser.select(id); return browser.state(); });
-    handle('open-all', () => browser.openAll());
-    handle('add', data => { const a = store.add(data?.name, data?.note, data?.useProfileName); browser.select(a.id); });
+    handle('open-all', () => browser.openAll(store.platformView));
+    handle('platform-menu', () => {
+      const options = [['all', '全部平台'], ...Object.entries(platforms).map(([id, platform]) => [id, platform.label])];
+      const menu = Menu.buildFromTemplate(options.map(([id, label]) => ({
+        label, type: 'radio', checked: store.platformView === id,
+        click: () => {
+          if (browser.overlay || quitInProgress) return;
+          try { browser.setPlatformView(id); }
+          catch (error) { dialog.showErrorBox('切换平台失败', error.message); }
+        }
+      })));
+      menu.popup({ window: win });
+    });
+    handle('add', data => { const a = store.add(data?.name, data?.note, data?.useProfileName, data?.platform); browser.select(a.id); });
     handle('edit', data => { store.edit(data?.id, data?.name, data?.note, data?.useProfileName, data?.avatarMode, data?.customAvatar); browser.onUpdate(); });
     handle('sync-profile', async id => { requireCurrent(browser, id); await browser.syncProfile(id, true); });
     handle('choose-avatar', async id => {
@@ -163,7 +176,7 @@ else {
       { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: '网页', submenu: [{ label: '后退', accelerator: 'CmdOrCtrl+[', click: () => browser.navigate('back') },
         { label: '前进', accelerator: 'CmdOrCtrl+]', click: () => browser.navigate('forward') },
-        { label: '扣子首页', click: () => browser.navigate('home') },
+        { label: '当前平台首页', click: () => browser.navigate('home') },
         { label: '刷新当前网页', accelerator: 'CmdOrCtrl+R', click: () => browser.navigate('reload') },
         { label: '放大', accelerator: 'CmdOrCtrl+=', click: () => browser.navigate('zoom-in') }, { label: '缩小', accelerator: 'CmdOrCtrl+-', click: () => browser.navigate('zoom-out') },
         { label: '原始大小', accelerator: 'CmdOrCtrl+0', click: () => browser.navigate('zoom-reset') }, { role: 'togglefullscreen', label: '全屏' }] },

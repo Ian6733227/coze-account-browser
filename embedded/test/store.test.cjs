@@ -157,10 +157,24 @@ test('platform metadata is backward compatible and view changes preserve the old
   assert.deepEqual(reopened.get(original.id), original);
   assert.equal(reopened.sessionPath(original.id), originalPath);
   assert.deepEqual(reopened.startupSelection(), { accountId: account.id, url: 'https://qwenwork.cn/app/' });
-  assert.equal(reopened.get(account.id).useProfileName, false);
+  assert.equal(reopened.get(account.id).useProfileName, true);
   assert.equal(fs.readFileSync(store.file, 'utf8'), stored);
   assert.throws(() => reopened.add('无效平台', '', false, '__proto__'), /平台/);
   assert.throws(() => reopened.setPlatformView('__proto__'), /平台/);
   reopened.setPlatformView('doubao');
   assert.equal(reopened.startupSelection(), null);
+});
+
+
+test('legacy generated names opt into platform sync while custom and explicit choices survive', t => {
+  const root = temporary(t), store = new Store(root);
+  const generated = store.add('豆包账号 6', '', false, 'doubao');
+  const custom = store.add('手动名称', '', false, 'doubao');
+  const legacy = store.accounts.map(({profileNamePreference, ...account}) => account);
+  fs.writeFileSync(store.file, JSON.stringify(legacy));
+  const reopened = new Store(root);
+  assert.equal(reopened.get(generated.id).useProfileName, true);
+  assert.equal(reopened.get(custom.id).useProfileName, false);
+  reopened.edit(generated.id, generated.name, '', false);
+  assert.equal(new Store(root).get(generated.id).useProfileName, false);
 });

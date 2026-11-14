@@ -20,6 +20,7 @@ exports.run = async ctx => {
   if (process.argv.includes('--mock-acceptance')) return require('./mock-acceptance-test.cjs').run(ctx);
   if (process.argv.includes('--memory-check')) return require('./memory-test.cjs').run(ctx);
   const { app, win, browser, store, root } = ctx;
+  assert.equal(await win.webContents.executeJavaScript('!document.getElementById("all") && typeof window.coze.openAll === "undefined"'), true);
   assert.equal(await win.webContents.executeJavaScript('document.querySelector("footer span:last-child").textContent'), 'Chromium · ' + require('../package.json').version);
   const cli = async (...args) => {
     const env={...process.env,ELECTRON_RUN_AS_NODE:'1'};
@@ -172,7 +173,10 @@ exports.run = async ctx => {
     browser.onUpdate();
     await until(async () => await win.webContents.executeJavaScript(`document.activeElement.dataset.accountId === ${JSON.stringify(store.accounts[2].id)}`), 'account keyboard focus survives update');
     assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('#accounts .account-number').length`), 6);
-    console.log('PASS default avatar numbers and focus retained');
+    await until(() => win.webContents.executeJavaScript(`[...document.querySelectorAll('#accounts .avatar img')].length === 6 &&
+      [...document.querySelectorAll('#accounts .avatar img')].every(img =>
+        img.getAttribute('src') === 'platform-icons/coze.png' && img.complete && img.naturalWidth > 0)`), 'local default platform icons decode');
+    console.log('PASS default platform icons, avatar numbers and focus retained');
     // Help lives in the same native window and restores the existing account renderer.
     const helpAccount = browser.selected, helpRenderer = browser.attached.webContents.id;
     await win.webContents.executeJavaScript(`document.querySelector('#help').click()`);
@@ -190,6 +194,24 @@ exports.run = async ctx => {
       const evidence = process.env.COZE_BROWSER_EVIDENCE; fs.mkdirSync(evidence,{recursive:true});
       fs.writeFileSync(path.join(evidence,'help-window.png'),(await win.webContents.capturePage()).toPNG());
     }
+    const { shell } = require('electron');
+    const launchExternal = shell.openExternal;
+    const external = [];
+    shell.openExternal = async url => { external.push(url); };
+    try {
+      await win.webContents.executeJavaScript("document.querySelector('#help-tools').click()");
+      assert.equal(await win.webContents.executeJavaScript("!document.querySelector('#tools-panel').hidden && document.querySelector('#help-frame').hidden"), true);
+      assert.deepEqual(external, []);
+      await win.webContents.executeJavaScript("document.querySelector('#tool-remote').click()");
+      await until(() => external.length === 1, 'tools link opens only on click');
+      assert.deepEqual(external, ['https://soft.jiunai.tech/mac-remote-display/']);
+      const rejected = await win.webContents.executeJavaScript("window.coze.openToolLink('https://example.com')");
+      assert.equal(rejected.ok, false);
+      await win.webContents.executeJavaScript("document.querySelector('#help-tools').click()");
+      assert.equal(await win.webContents.executeJavaScript("document.querySelector('#tools-panel').hidden"), true);
+      await until(() => win.webContents.executeJavaScript("document.querySelector('#help-frame').contentDocument?.querySelector('video')?.readyState >= 1"), 'return to help');
+      console.log('PASS optional More Tools opens only approved URLs and returns to help');
+    } finally { shell.openExternal = launchExternal; }
     await win.webContents.executeJavaScript(`document.querySelector('#help-close').click()`);
     await until(() => !browser.overlay, 'help close');
     assert.equal(browser.selected, helpAccount); assert.equal(browser.attached.webContents.id, helpRenderer);
@@ -212,7 +234,10 @@ exports.run = async ctx => {
     console.log('PASS authorization popup shares account session/opener and stays in one window; unsafe schemes denied');
     const id = browser.selected, oldID = primary.view.webContents.id; await browser.pause(id); assert.equal(entry.tabs.length, 0); assert.equal(win.contentView.children.filter(v => v.getVisible()).length, 0);
     assert.equal(browser.state().accounts.find(a => a.id === id).paused, true);
-    browser.select(id); await ready(browser.activeTab().view.webContents); assert.notEqual(browser.activeTab().view.webContents.id, oldID);
+    await win.webContents.executeJavaScript(`document.querySelector('#accounts [data-account-id="${id}"]').click()`);
+    await until(() => Boolean(browser.activeTab()), 'sidebar account click reopens closed page');
+    await ready(browser.activeTab().view.webContents);
+    assert.notEqual(browser.activeTab().view.webContents.id, oldID);
     assert.equal(browser.state().accounts.find(a => a.id === id).paused, false);
     assert.equal((await probe(browser.activeTab().view.webContents)).stored, 'synthetic-5'); assert.equal((await probe(browser.activeTab().view.webContents)).cookie, 'identity=synthetic-5');
     const stablePath = store.sessionPath(id); store.edit(id, '第六个测试账号', '测试'); assert.equal(store.sessionPath(id), stablePath);
@@ -267,13 +292,16 @@ exports.run = async ctx => {
     store.edit(second.id, second.name, '', true, 'custom', anonymous);
     assert.equal(browser.state().accounts[1].displayAvatar, anonymous);
     store.edit(second.id, second.name, '', true, 'sync', '');
-    await until(async () => await win.webContents.executeJavaScript('document.querySelectorAll(".account-number:not([hidden])").length === 2'), 'visible same-name icon badges');
+    await until(async () => await win.webContents.executeJavaScript('document.querySelectorAll(".account-number:not([hidden])").length === 6'), 'visible badges for all avatar types');
     const retainedView = browser.attached.webContents.id;
     await win.webContents.executeJavaScript('document.querySelector("#sidebar-toggle").click()');
     await until(() => store.sidebarCollapsed && browser.attached.getBounds().x === COMPACT_LEFT, 'collapse relocates native page');
     await until(async () => await win.webContents.executeJavaScript('document.querySelector("aside").getBoundingClientRect().width === 76'), 'collapsed shell bounds');
     const compact = await win.webContents.executeJavaScript(`({aside:document.querySelector('aside').getBoundingClientRect().width,main:document.querySelector('main').getBoundingClientRect().left,hidden:getComputedStyle(document.querySelector('.account-details')).display,label:document.querySelector('.account').getAttribute('aria-label'),expand:document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')})`);
     assert.equal(compact.aside, COMPACT_LEFT); assert.equal(compact.main, COMPACT_LEFT); assert.equal(compact.hidden, 'none'); assert.ok(compact.label.includes('账号 1')); assert.equal(compact.expand, 'false');
+    assert.equal(await win.webContents.executeJavaScript(
+      'Array.from(document.querySelectorAll("#accounts .account-number")).every(badge => badge.getBoundingClientRect().width > 0)'
+    ), true);
     assert.equal(browser.attached.webContents.id, retainedView);
     if (process.env.COZE_BROWSER_EVIDENCE) fs.writeFileSync(path.join(process.env.COZE_BROWSER_EVIDENCE,'compact-sidebar.png'),(await win.webContents.capturePage()).toPNG());
     const cookieBefore = (await probe(browser.entries.get(second.id).tabs[0].view.webContents)).cookie;
@@ -285,7 +313,7 @@ exports.run = async ctx => {
     browser.setSidebarCollapsed(true);
     // Restore fixture identities expected by the second process.
     store.profile(second.id, '测试昵称 2', customPicture); store.profile(third.id, '测试昵称 3', customPicture);
-    console.log('PASS compact sidebar CSS/native bounds, accessible icons, duplicate badges, custom default image override and live session preservation');
+    console.log('PASS compact sidebar CSS/native bounds, accessible icons, account numbers, custom default image override and live session preservation');
     const listed=await cli('accounts');assert.equal(listed.accounts.length,7);assert.equal(listed.accounts[6].archived,true);
     const originalViews=store.accounts.slice(0,6).map(a=>browser.entries.get(a.id).tabs[0].view.webContents.id);
     for(let index=0;index<30;index++) {

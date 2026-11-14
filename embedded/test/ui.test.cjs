@@ -32,7 +32,7 @@ function fixture() {
   const state={selected:'a1',accounts,tabs:[]},calls=[];let render;
   const ok=value=>Promise.resolve({ok:true,value});
   const coze={onState:fn=>{render=fn;},onHelp(){},state:()=>new Promise(()=>{}),select:id=>{calls.push(['select',id]);return ok();},tab:id=>{calls.push(['tab',id]);return ok();},closeTab:()=>ok(),overlay:()=>ok(),chooseAvatar:()=>ok('data:image/png;base64,new'),edit:(...args)=>{calls.push(['edit',...args]);return ok();}};
-  for(const name of ['sidebar','archive','pause','syncProfile','openAll','add'])coze[name]=()=>ok();
+  for(const name of ['sidebar','archive','pause','syncProfile','add'])coze[name]=()=>ok();
   const context=vm.createContext({document,window:{coze}});
   vm.runInContext(fs.readFileSync(process.env.COZE_UI_SOURCE||path.join(__dirname,'../ui/app.js'),'utf8'),context);
   render(state);
@@ -57,7 +57,7 @@ test('pause state disables only the closing account and its actions; unchanged t
   const {state,render,ids}=fixture();state.tabs=[{id:'tab1',title:'扣子',primary:true,active:true},{id:'tab2',title:'其他页',primary:false,active:false}];render(state);
   const firstTab=ids.get('tabs').children[0];state.accounts[0].pausing=true;render(state);
   assert.equal(ids.get('status').textContent,'正在关闭网页…');assert.equal(ids.get('accounts').children[0].disabled,true);assert.equal(ids.get('accounts').children[1].disabled,false);
-  for(const id of ['pause','resume','sync','all'])assert.equal(ids.get(id).disabled,true,id);
+  for(const id of ['pause','resume','sync'])assert.equal(ids.get(id).disabled,true,id);
   assert.equal(ids.get('tabs').children[0],firstTab);assert.equal(firstTab.disabled,true);
   state.accounts[0].pausing=false;render(state);assert.equal(ids.get('pause').disabled,false);
 });
@@ -71,7 +71,7 @@ test('editor preserves custom avatar data and restores the synced avatar across 
 });
 test('adding an account without any avatar opens the editor with a fallback', async () => {
   const {ids,context}=fixture();await vm.runInContext('editor()',context);
-  assert.equal(ids.get('avatar-preview').textContent,'头像');assert.equal(ids.get('editor').open,true);
+  assert.equal(ids.get('avatar-preview').firstChild.src,'platform-icons/coze.png');assert.equal(ids.get('editor').open,true);
   assert.equal(ids.get('account-name').value,'扣子账号 6');
 });
 test('a failed current page has clear recovery actions; background errors do not cover a healthy page', () => {
@@ -79,4 +79,28 @@ test('a failed current page has clear recovery actions; background errors do not
   assert.equal(document.querySelector('.empty').style.display,'flex');assert.equal(ids.get('recover-reload').hidden,false);assert.equal(ids.get('recover-home').hidden,false);assert.equal(ids.get('resume').hidden,true);
   state.accounts[0].crashed=false;state.accounts[0].pageError='';state.accounts[0].backgroundError=true;render(state);
   assert.equal(document.querySelector('.empty').style.display,'none');assert.equal(ids.get('recover-reload').hidden,true);
+});
+
+
+test('accounts use the matching local platform icon until a personal image is available', () => {
+  const {state,render,ids}=fixture();
+  state.platforms={ coze:{label:'扣子'}, doubao:{label:'豆包'} };
+  state.accounts[1].platform='doubao';
+  render(state);
+  const row=ids.get('accounts').children[1];
+  const avatar=row.children.find(x=>x.className==='avatar');
+  const badge=row.children.find(x=>x.className==='account-number');
+  assert.equal(avatar.firstChild.src,'platform-icons/doubao.png');
+  assert.equal(badge.hidden,false);
+  state.accounts[1].displayAvatar='data:image/png;base64,personal';
+  render(state);
+  assert.equal(badge.hidden,false);
+  assert.equal(avatar.firstChild.src,state.accounts[1].displayAvatar);
+  avatar.firstChild.emit('error');
+  assert.equal(avatar.firstChild.src,'platform-icons/doubao.png');
+  render(state);
+  assert.equal(badge.hidden,false);
+  state.platformView='doubao'; render(state);
+  assert.equal(ids.get('accounts').children.length,1);
+  assert.equal(badge.textContent,'2');
 });

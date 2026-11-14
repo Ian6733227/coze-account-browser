@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 const os = require('node:os'), path = require('node:path');
+const { existsSync } = require('node:fs');
 const { spawn } = require('node:child_process');
 const { request, endpoint } = require('./control-transport.cjs');
 const version = require('../package.json').version;
 const { checkedVersion } = require('./compatibility.cjs');
-const HELP = `coze-browser — 扣子账号浏览器本机控制 CLI ${version}
+const HELP = `coze-browser — 智进化 AI 工作台本机控制 CLI ${version}
   coze-browser launch                         启动应用并等待控制通道就绪
   coze-browser accounts                       列出账号编号、固定ID、名称与运行状态
   coze-browser status                         查询当前账号和页面加载状态
@@ -52,7 +53,12 @@ async function launch(root,timeout) {
   catch (error) {
     if (!['ENOENT','ECONNREFUSED'].includes(error.code)) throw error;
   }
-  const appPath = process.env.COZE_BROWSER_APP || path.join(os.homedir(),'Applications/扣子账号浏览器.app');
+  const appNames = ['智进化 AI 工作台.app', '扣子账号浏览器.app'];
+  const candidates = [path.join(os.homedir(), 'Applications'), '/Applications']
+    .flatMap(directory => appNames.map(name => path.join(directory, name)));
+  const appPath = process.env.COZE_BROWSER_APP || candidates.find(candidate =>
+    existsSync(path.join(candidate, 'Contents/MacOS/CozeAccountBrowser'))
+  ) || candidates[0];
   await new Promise((resolve,reject) => {
     const custom = root !== path.join(os.homedir(),'Library/Application Support/CozeAccountsBrowser');
     // The bundled CLI runs Electron as Node; that mode must not reach the GUI.

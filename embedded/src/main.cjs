@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -14,11 +14,17 @@ const { checkedVersion } = require('./compatibility.cjs');
 const { request } = require('./control-transport.cjs');
 const { platforms } = require('./platforms.cjs');
 const { deadline } = require('./closing.cjs');
+const TOOL_LINKS = Object.freeze({
+  remoteDisplay: 'https://soft.jiunai.tech/mac-remote-display/',
+  displayControl: 'https://soft.jiunai.tech/mac-display-control/',
+  catalog: 'https://soft.jiunai.tech/',
+  brand: 'https://zhijinhua.cn/'
+});
 const testing = process.argv.includes('--self-test');
 const rootIndex = process.argv.indexOf('--data-root');
 const root = rootIndex >= 0 ? path.resolve(process.argv[rootIndex + 1]) : testing ? fs.mkdtempSync(path.join(os.tmpdir(), 'coze-browser-test-')) :
   path.join(app.getPath('appData'), 'CozeAccountsBrowser');
-app.setName('扣子账号浏览器');
+app.setName('智进化 AI 工作台');
 app.setPath('userData', root);
 if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
@@ -43,13 +49,13 @@ else {
   app.whenReady().then(async () => {
     // HTTP User-Agent is a byte header; the Chinese app display name must not
     // leak into it (session.fetch/custom protocol headers reject non-ASCII).
-    app.userAgentFallback = app.userAgentFallback.replaceAll('扣子账号浏览器', 'CozeAccountsBrowser');
-    app.setAboutPanelOptions({ applicationName: '扣子账号浏览器', applicationVersion: app.getVersion(),
-      iconPath: path.join(__dirname, '../assets/coze-multi-account.png'),
-      copyright: '非官方辅助工具 · 一个窗口，多个独立账号' });
+    app.userAgentFallback = app.userAgentFallback.replace(/智进化[ -]*AI[ -]*工作台|扣子账号浏览器/gi, 'CozeAccountsBrowser').replace(/[^\x20-\x7e]/g, '');
+    app.setAboutPanelOptions({ applicationName: '智进化 AI 工作台', applicationVersion: app.getVersion(),
+      iconPath: path.join(__dirname, '../assets/zhijinhua-app.png'),
+      copyright: '智进化 · 多账号工作台' });
     const store = new Store(root, testing || rootIndex >= 0 ? null : path.join(app.getPath('appData'), 'CozeAccounts', 'accounts.json'));
     win = new BrowserWindow({ width: 1280, height: 840, minWidth: 960, minHeight: 650,
-      title: '扣子账号浏览器', titleBarStyle: 'hiddenInset', backgroundColor: '#f6f7fb',
+      title: '智进化 AI 工作台', titleBarStyle: 'hiddenInset', backgroundColor: '#f6f7fb',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
     win.on('close', event => {
       if (quitting) return;
@@ -70,14 +76,17 @@ else {
       if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== shellURL) throw new Error('不允许访问。');
       try {
         if (quitInProgress) throw new Error('浏览器正在退出。');
-        if (browser.overlay && ['platform-menu','account-menu','select','open-all','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
+        if (browser.overlay && ['platform-menu','account-menu','select','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
         return { ok: true, value: await fn(payload) };
       } catch (err) { notify.flush(); return { ok: false, error: err.message || '操作未完成。' }; }
     });
     handle('state', () => browser.state());
+    handle('tool-link', key => {
+      if (typeof key !== 'string' || !Object.hasOwn(TOOL_LINKS, key)) throw new Error('工具链接不可用。');
+      return shell.openExternal(TOOL_LINKS[key]);
+    });
     handle('sidebar', value => browser.setSidebarCollapsed(value));
     handle('select', id => { store.get(id); browser.select(id); return browser.state(); });
-    handle('open-all', () => browser.openAll(store.platformView));
     handle('platform-menu', () => {
       const options = [['all', '全部平台'], ...Object.entries(platforms).map(([id, platform]) => [id, platform.label])];
       const menu = Menu.buildFromTemplate(options.map(([id, label]) => ({
@@ -172,7 +181,7 @@ else {
     handle('close-tab', () => browser.closeTab());
     handle('overlay', value => { if (typeof value !== 'boolean') throw new Error('无效操作。'); browser.setOverlay(value); });
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: app.name, submenu: [{ role: 'about', label: '关于扣子账号浏览器' }, { type: 'separator' }, { role: 'hide', label: '隐藏' }, { role: 'quit', label: '退出' }] },
+      { label: app.name, submenu: [{ role: 'about', label: '关于智进化 AI 工作台' }, { type: 'separator' }, { role: 'hide', label: '隐藏' }, { role: 'quit', label: '退出' }] },
       { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: '网页', submenu: [{ label: '后退', accelerator: 'CmdOrCtrl+[', click: () => browser.navigate('back') },
         { label: '前进', accelerator: 'CmdOrCtrl+]', click: () => browser.navigate('forward') },

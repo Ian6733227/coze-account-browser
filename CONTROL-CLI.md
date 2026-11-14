@@ -1,6 +1,6 @@
 # 本机浏览器控制 CLI / IPC v1
 
-适用：扣子账号浏览器2.3.6，Apple Silicon macOS。此入口控制本机浏览器，不调用官方Coze CLI，也不发送扣子对话消息。
+适用：智进化 AI 工作台，Apple Silicon macOS。此入口控制本机浏览器，不调用官方Coze CLI，也不发送扣子对话消息。
 
 ## 使用
 

@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { safeResumeURL } = require('./resume.cjs');
-const { knownPlatform, matchesPlatform } = require('./platforms.cjs');
+const { platforms, knownPlatform, matchesPlatform } = require('./platforms.cjs');
 const { atomicWrite } = require('./atomic-write.cjs');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 function imageValue(value) { return typeof value === 'string' && value.length <= 160000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(value) ? value : ''; }
@@ -15,8 +15,13 @@ function validate(accounts) {
       throw new Error('账号记录包含无效名称或重复 ID，原文件已保留。');
     }
     seen.add(a.id.toLowerCase());
-    return { id: a.id, ...(knownPlatform(a.platform) && a.platform !== 'coze' ? { platform: a.platform } : {}), name: a.name.trim(), note: typeof a.note === 'string' ? a.note.slice(0, 300) : '', archived: a.archived === true,
-      useProfileName: typeof a.useProfileName === 'boolean' ? a.useProfileName : /^扣子账号 \d+$/.test(a.name.trim()),
+    const platform = knownPlatform(a.platform) && a.platform !== 'coze' ? a.platform : null;
+    const defaultName = platform && a.name.trim().startsWith(platforms[platform].label + '账号 ') &&
+      /^\d+$/.test(a.name.trim().slice(platforms[platform].label.length + 3));
+    const useProfileName = platform && a.profileNamePreference !== true && defaultName
+      ? true : typeof a.useProfileName === 'boolean' ? a.useProfileName : /^扣子账号 \d+$/.test(a.name.trim());
+    return { id: a.id, ...(platform ? { platform, profileNamePreference: true } : {}), name: a.name.trim(), note: typeof a.note === 'string' ? a.note.slice(0, 300) : '', archived: a.archived === true,
+      useProfileName,
       avatarMode: a.avatarMode === 'custom' ? 'custom' : 'sync', customAvatar: imageValue(a.customAvatar),
       profile: { name: typeof a.profile?.name === 'string' ? a.profile.name.trim().slice(0,80) : '', avatar: imageValue(a.profile?.avatar),
         syncedAt: Number.isFinite(a.profile?.syncedAt) ? a.profile.syncedAt : 0 } };
@@ -107,7 +112,7 @@ class Store {
   }
   add(name, note = '', useProfileName = true, platform = 'coze') {
     if (!knownPlatform(platform)) throw new Error('请选择有效的平台。');
-    const a = { id: randomUUID(), name, note, platform, archived: false, useProfileName: platform === 'coze' && useProfileName === true };
+    const a = { id: randomUUID(), name, note, platform, archived: false, profileNamePreference: true, useProfileName: useProfileName === true };
     this.save([...this.accounts, a]); return this.accounts.at(-1);
   }
   edit(id, name, note, useProfileName = false, avatarMode, customAvatar) {

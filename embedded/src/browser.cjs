@@ -1,7 +1,7 @@
 'use strict';
 const { WebContentsView, session } = require('electron');
 const { randomUUID } = require('node:crypto');
-const { trustedPage, PROFILE_SCRIPT, fetchAvatar, isDefaultAvatar } = require('./identity.cjs');
+const { trustedPage, profileScript, fetchAvatar, isDefaultAvatar } = require('./identity.cjs');
 const { platforms, matchesPlatform } = require('./platforms.cjs');
 const { deadline, flushEntry, closeTabs } = require('./closing.cjs');
 const LEFT = 232, COMPACT_LEFT = 76, TOP = 43, FOOT = 26;
@@ -13,7 +13,11 @@ class AccountBrowser {
     this.disposing = false; this.pausing = new Set();
     this.saveTimeout = 5000; this.closeTimeout = 5000; this.clearTimeout = 10000;
     this.profileChecks = new Map(); this.profileErrors = new Map();
-    this.profileTimer = setInterval(() => { if (this.selected) this.syncProfile(this.selected).catch(() => {}); }, 30000);
+    this.profileTimer = setInterval(() => {
+      for (const id of this.entries.keys()) {
+        if (id === this.selected || this.store.get(id).platform) this.syncProfile(id).catch(() => {});
+      }
+    }, 30000);
     this.profileTimer.unref();
     win.on('resize', () => this.layout());
   }
@@ -157,41 +161,52 @@ class AccountBrowser {
     return {tab,created};
   }
   async syncProfile(id, force = false) {
-    if ((this.store.get(id).platform || 'coze') !== 'coze') return;
+    const platform = this.store.get(id).platform || 'coze';
     const entry = this.entries.get(id), tab = entry?.tabs.find(t => t.primary), wc = tab?.view.webContents;
     if (entry?.closing || entry?.flushing || entry?.clearing || this.disposing) {
       if (force) this.assertAvailable(entry);
       return;
     }
-    if (!wc || wc.isDestroyed() || wc.isLoading() || !trustedPage(wc.getURL())) {
-      if (force) throw new Error('先在这个账号中打开并登录扣子，再同步头像与昵称。');
+    if (!wc || wc.isDestroyed() || wc.isLoading() || !trustedPage(wc.getURL(), platform)) {
+      if (force) throw new Error('先在这个账号中打开平台网页并登录，再同步头像与昵称。');
       return;
     }
     const prior = this.profileChecks.get(id);
-    if (prior?.busy || (!force && prior && Date.now() - prior.at < 30000)) return;
-    const check = { busy: true, at: Date.now() }; this.profileChecks.set(id, check);
+    if (prior?.busy || (!force && prior && prior.generation === tab.generation && Date.now() - prior.at < 30000)) return;
+    const check = { busy: true, at: Date.now(), generation: tab.generation, avatarURL: prior?.avatarURL }; this.profileChecks.set(id, check);
     this.onUpdate();
     try {
-      const url = wc.getURL(), generation = tab.generation, profile = await wc.executeJavaScript(PROFILE_SCRIPT);
-      if (entry.closing || this.disposing || wc.isDestroyed() || wc.getURL() !== url || tab.generation !== generation) return;
-      if (!profile?.name || typeof profile.name !== 'string' || profile.name.length > 80) throw new Error('暂未获取到扣子账号信息；请确认已登录后重试。');
-      const avatar = await fetchAvatar(entry.session, profile.avatarURL);
-      if (entry.closing || this.disposing || wc.isDestroyed() || wc.getURL() !== url || tab.generation !== generation) return;
+      const url = wc.getURL(), generation = tab.generation;
+      const stillCurrent = () => !this.disposing && !this.accountBusy(id) && !wc.isDestroyed() &&
+        wc.getURL() === url && tab.generation === generation;
+      const profile = await deadline(wc.executeJavaScript(profileScript(platform)), 10000,
+        'PROFILE_TIMEOUT', '账号资料读取超时。');
+      if (!stillCurrent()) return;
+      const name = typeof profile?.name === 'string' ? profile.name.trim() : '';
+      if (!name || name.length > 80 || /^(?:登录|未登录|游客|登录\/注册|sign in|log in|guest|loading|加载中)$/i.test(name)) {
+        throw new Error('暂未获取到账号信息；请确认已登录后重试。');
+      }
       const account = this.store.get(id);
-      const picture = avatar;
-      if (account.profile.name !== profile.name || account.profile.avatar !== picture || force) this.store.profile(id, profile.name, picture);
+      const cached = account.profile.name === name ? account.profile.avatar : '';
+      const avatarURL = typeof profile.avatarURL === 'string' ? profile.avatarURL : '';
+      const avatar = !force && cached && avatarURL === check.avatarURL ? cached : await fetchAvatar(entry.session, avatarURL, platform);
+      if (!stillCurrent()) return;
+      const picture = avatar || cached;
+      if (avatar) check.avatarURL = avatarURL;
+      if (account.profile.name !== name || account.profile.avatar !== picture || force) this.store.profile(id, name, picture);
       check.confirmedAt = Date.now();
       this.profileErrors.delete(id);
-      if (force && !picture) this.profileErrors.set(id, '昵称已同步，头像暂未获取到；稍后可以重试或自定义。');
+      if (force && !avatar) this.profileErrors.set(id, '昵称已同步，头像暂未获取到；稍后可以重试或自定义。');
     } catch (err) {
+      if (this.disposing || this.accountBusy(id) || wc.isDestroyed() || tab.generation !== check.generation) return;
       check.confirmedAt = 0;
       const message = '账号信息暂未确认，当前头像与昵称可能是缓存；请登录后重新同步。';
       this.profileErrors.set(id, message);
       if (force) throw new Error(message);
     } finally { check.busy = false; this.onUpdate(); }
   }
-  openAll(view = 'all') {
-    const accounts = this.store.accounts.filter(a => !a.archived && matchesPlatform(a, view));
+  openAll() {
+    const accounts = this.store.accounts.filter(a => !a.archived);
     // Validate the whole action before opening any account.
     for (const a of accounts) this.assertAvailable(this.entries.get(a.id));
     for (const a of accounts) this.ensure(a.id);
@@ -319,8 +334,9 @@ class AccountBrowser {
   state() {
     return { selected: this.selected, sidebarCollapsed: this.store.sidebarCollapsed, sidebarOrder: this.store.sidebarOrder, platformView: this.store.platformView, platforms, accounts: this.store.accounts.map(a => {
       const entry = this.entries.get(a.id), tabs = entry?.tabs || [];
-      return { ...a, platform: a.platform || 'coze', displayName: a.useProfileName && a.profile.name ? a.profile.name : a.name,
-        displayAvatar: a.avatarMode === 'custom' ? a.customAvatar : isDefaultAvatar(a.profile.avatar) ? '' : a.profile.avatar,
+      const syncedAvatar = isDefaultAvatar(a.profile.avatar) ? '' : a.profile.avatar;
+      return { ...a, syncedAvatar, platform: a.platform || 'coze', displayName: a.useProfileName && a.profile.name ? a.profile.name : a.name,
+        displayAvatar: a.avatarMode === 'custom' ? a.customAvatar : syncedAvatar,
         identityStatus: this.profileChecks.get(a.id)?.confirmedAt ? 'confirmed' : 'unconfirmed', identityCheckedAt: this.profileChecks.get(a.id)?.confirmedAt || null,
         syncing: this.profileChecks.get(a.id)?.busy === true, running: tabs.length > 0, clearing: Boolean(entry?.clearing), pausing: Boolean(entry?.closing || entry?.flushing || entry?.clearing), paused: entry?.paused === true && tabs.length === 0, loading: tabs.some(t => t.view.webContents.isLoading()),
         crashed: tabs.find(t => t.id === entry.active)?.crashed === true, pageError: tabs.find(t => t.id === entry.active)?.error || '', backgroundError: tabs.some(t => t.id !== entry.active && (t.crashed || t.error)) };

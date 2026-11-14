@@ -94,10 +94,13 @@ test('accounts use the matching local platform icon until a personal image is av
   assert.equal(badge.hidden,false);
   state.accounts[1].displayAvatar='data:image/png;base64,personal';
   render(state);
-  assert.equal(badge.hidden,true);
+  assert.equal(badge.hidden,false);
   assert.equal(avatar.firstChild.src,state.accounts[1].displayAvatar);
   avatar.firstChild.emit('error');
   assert.equal(avatar.firstChild.src,'platform-icons/doubao.png');
   render(state);
   assert.equal(badge.hidden,false);
+  state.platformView='doubao'; render(state);
+  assert.equal(ids.get('accounts').children.length,1);
+  assert.equal(badge.textContent,'2');
 });

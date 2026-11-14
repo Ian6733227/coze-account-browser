@@ -18,23 +18,19 @@ function platformIcon(id, fallback = 'coze') {
   const supported = Object.hasOwn(state.platforms || {}, id);
   return 'platform-icons/' + (supported ? id : fallback) + '.png';
 }
-function fillAvatar(element, value, platform, badge, showNumber = false) {
+function fillAvatar(element, value, platform) {
   const fallback = platformIcon(platform);
   const prior = avatars.get(element);
-  if (badge) badge.hidden = Boolean(value) && !showNumber && !prior?.failed;
   if (prior && prior.value === value && prior.fallback === fallback) return;
   const image = document.createElement('img');
-  const current = {value, fallback, failed: false};
+  const current = {value, fallback};
   avatars.set(element, current);
   image.alt = '';
   image.src = value || fallback;
   if (value) image.addEventListener('error', () => {
     if (avatars.get(element) !== current) return;
-    current.failed = true;
     image.src = fallback;
-    if (badge) badge.hidden = false;
   }, {once:true});
-  if (badge) badge.hidden = Boolean(value) && !showNumber;
   element.replaceChildren(image);
 }
 function previewAvatar(account) {
@@ -105,8 +101,6 @@ function render(value) {
   const archivedRunning = scopedAccounts.filter(a => a.archived && a.running).length;
   $('count').textContent = `${scopedAccounts.filter(a => !a.archived).length} 个账号 · ${scopedAccounts.filter(a => a.running).length} 个网页运行中${archivedRunning ? `（含 ${archivedRunning} 个已隐藏）` : ''}`;
   const accountScroll = $('accounts').scrollTop;
-  const nameCounts = new Map();
-  for (const a of state.accounts) nameCounts.set(a.displayName, (nameCounts.get(a.displayName) || 0) + 1);
   const present = new Set(state.accounts.map(a => a.id));
   for (const id of accountRows.keys()) if (!present.has(id)) accountRows.delete(id);
   const rows = [];
@@ -131,7 +125,7 @@ function render(value) {
     button.className = `account${a.id === state.selected ? ' active' : ''}`;
     button.disabled = a.pausing === true;
     button.setAttribute('aria-current', a.id === state.selected ? 'true' : 'false');
-    fillAvatar(avatar, a.displayAvatar, a.platform, badge, nameCounts.get(a.displayName) > 1);
+    fillAvatar(avatar, a.displayAvatar, a.platform);
     badge.textContent = String(index + 1); name.textContent = a.displayName;
     status.textContent = pageStatus(a, a.id === state.selected);
     if (showPlatformLabels) {

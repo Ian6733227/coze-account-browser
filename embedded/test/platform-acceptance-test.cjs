@@ -16,6 +16,13 @@ async function until(predicate, description) {
 exports.run = async ({ win, browser, store, root }) => {
   const shell = script => win.webContents.executeJavaScript(script);
   const rowIDs = () => shell('Array.from(document.querySelectorAll(".account"), row => row.dataset.accountId)');
+  const checkIcon = async id => {
+    await until(() => shell(`(() => {
+      const icon = document.querySelector('#platform-icon');
+      return icon.getAttribute('src') === 'platform-icons/${id}.png' &&
+        icon.complete && icon.naturalWidth === 72 && icon.getBoundingClientRect().width === 24;
+    })()`), 'platform icon: ' + id);
+  };
   const originalPopup = Menu.prototype.popup;
   let menuChoice;
   Menu.prototype.popup = function () {
@@ -27,6 +34,7 @@ exports.run = async ({ win, browser, store, root }) => {
     menuChoice = id === 'all' ? '全部平台' : platforms[id].label;
     await shell('document.querySelector("#platform-switch").click(); null');
     await until(() => store.platformView === id, 'platform switch');
+    await checkIcon(id);
   }
   try {
     const original = store.accounts[0];
@@ -53,6 +61,7 @@ exports.run = async ({ win, browser, store, root }) => {
     }
     console.log('PASS all five platform homes, separate sessions and no privileged bridge in remote pages');
     await until(async () => (await rowIDs()).length === accounts.length, 'combined accounts');
+    await checkIcon('all');
     const current = browser.entries.get(original.id).tabs[0].view.webContents.id;
     for (const [id] of Object.entries(platforms)) {
       await view(id);
@@ -81,6 +90,17 @@ exports.run = async ({ win, browser, store, root }) => {
     assert.equal(await shell('document.querySelector("#profile-name-field").hidden'), true);
     await shell('document.querySelector("#cancel").click(); null');
     await until(() => !browser.overlay, 'new account editor dismissed');
+    browser.setSidebarCollapsed(true);
+    await checkIcon('qwenwork');
+    assert.equal(await shell('document.querySelector("#platform-switch").getBoundingClientRect().width > 0'), true);
+    console.log('PASS six platform icons decode locally and the compact switch stays visible');
+    if (process.env.COZE_PLATFORM_LOGO_PREVIEW) {
+      await view('doubao');
+      const clip = { x: 0, y: 40, width: 232, height: 116 };
+      browser.setSidebarCollapsed(false);
+      await shell('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+      require('node:fs').writeFileSync(process.env.COZE_PLATFORM_LOGO_PREVIEW, (await win.webContents.capturePage(clip)).toPNG());
+    }
     console.log('PASS menu filters each platform, combined view restores, selection/sessions retained, CLI rejects cross-platform URL');
   } finally {
     Menu.prototype.popup = originalPopup;

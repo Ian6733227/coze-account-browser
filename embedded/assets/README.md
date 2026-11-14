@@ -10,3 +10,11 @@
 - CozeIcon.icns：用 macOS sips 转换新图标各标准尺寸，再用 iconutil 打包。
 - 新图标只用于本工具的识别，不表示扣子官方背书。
 - 打包脚本将 CozeIcon.icns 写入 Contents/Resources 并设置 CFBundleIconFile。
+
+The platform switcher loads bundled PNGs from `embedded/ui/platform-icons`. The all-platform grid is drawn for this app. The provider marks identify the corresponding web services and belong to their respective owners.
+
+- Coze: existing `coze-official-logo.png` above.
+- Doubao: [official chat favicon](https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/favicon/new-doubao/128x128.png).
+- WorkBuddy: [official homepage mark](https://assets.workbuddy.cn/web/workbuddy/8e036eb06f87c6b08437546b3cbd58e60af45b10/assets/logo.svg).
+- Aily: [official landing page mark](https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/apaas/ai/web/static/image/AilyNewLogo.b986463c.png).
+- QwenWork: [official site touch icon](https://img.alicdn.com/imgextra/i4/O1CN01HdCyPs1MZh3Szwmxo_!!6000000001449-2-tps-180-180.png).

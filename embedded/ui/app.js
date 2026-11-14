@@ -80,6 +80,10 @@ function render(value) {
   $('sidebar-toggle').title = toggleLabel; $('sidebar-toggle').setAttribute('aria-label', toggleLabel);
   $('sidebar-toggle').setAttribute('aria-expanded', String(!state.sidebarCollapsed));
   const viewName = state.platformView && state.platformView !== 'all' ? platformLabel(state.platformView) : '全部平台';
+  const icon = $('platform-icon');
+  const platform = state.platformView;
+  const iconPath = 'platform-icons/' + (platform && Object.hasOwn(state.platforms || {}, platform) ? platform : 'all') + '.png';
+  if (icon.getAttribute('src') !== iconPath) icon.setAttribute('src', iconPath);
   $('platform-name').textContent = viewName;
   $('platform-switch').title = '切换平台 · ' + viewName;
   $('platform-switch').setAttribute('aria-label', '切换平台 · ' + viewName);

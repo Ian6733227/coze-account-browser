@@ -76,7 +76,7 @@ h1 {
   line-height: 1.4;
   text-wrap: balance;
 }
-.brand-icon { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
+.brand-icon { width: 24px; height: 24px; object-fit: contain; border-radius: 6px; flex-shrink: 0; }
 p { margin: 0; color: var(--muted); text-wrap: pretty; }
 .list-heading p { font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .plus { width: 32px; height: 32px; padding: 0; border-color: transparent; border-radius: 9px; background: transparent; color: #52524f; font-size: 24px; font-weight: 300; }
@@ -237,6 +237,7 @@ dialog input::placeholder, dialog textarea::placeholder { color: #858580; }
   font: inherit;
 }
 #platform-switch:hover { background: #e8e8e4; }
+#platform-switch:focus-visible { outline: 2px solid #686879; outline-offset: 1px; }
 #platform-name { white-space: nowrap; }
 .platform-chevron { font-size: 14px; color: var(--muted); }
 #account-platform { font: inherit; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; color: inherit; background: white; }

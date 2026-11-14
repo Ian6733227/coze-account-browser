@@ -1,6 +1,6 @@
 # 应用图标来源
 
-智进化应用图标使用现有官方标志中的箭头，置于 macOS 圆角底板。
+智进化应用图标使用现有官方标志中的箭头，保留原有轮廓与配色，以 `zhijinhua-mark.svg` 矢量描绘后生成 macOS 圆角图标和「全部平台」图标。
 - `zhijinhua-app.png` 用于应用内和「关于」。
 - `ZhijinhuaApp.icns` 提供 16 到 1024 像素尺寸，供 Dock 和 Finder 显示。
 

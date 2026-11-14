@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('coze', Object.freeze({
   navigation: action => ipcRenderer.invoke('coze:navigation', action),
   tab: id => ipcRenderer.invoke('coze:tab', id),
   closeTab: () => ipcRenderer.invoke('coze:close-tab'),
+  openToolLink: key => ipcRenderer.invoke('coze:tool-link', key),
   overlay: visible => ipcRenderer.invoke('coze:overlay', visible === true),
   onHelp: callback => {
     const listener = () => callback();

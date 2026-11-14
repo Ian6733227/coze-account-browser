@@ -220,6 +220,19 @@ async function editor(id = null) {
   await invoke(window.coze.overlay(true)); $('editor').showModal(); $('account-name').focus(); $('account-name').select();
 }
 async function closeEditor() { $('editor').close(); editing = null; await invoke(window.coze.overlay(false)); }
+function showHelpTools(visible) {
+  $('tools-panel').hidden = !visible;
+  $('help-frame').hidden = visible;
+  $('help-tools').setAttribute('aria-expanded', String(visible));
+  $('help-tools').textContent = visible ? '返回帮助' : '更多工具';
+  $('tools-error').textContent = '';
+  if (visible) {
+    $('help-frame').removeAttribute('src');
+    $('tools-title').focus();
+  } else if ($('help-dialog').open) {
+    $('help-frame').src = 'help/index.html';
+  }
+}
 async function openHelp() {
   if ($('editor').open || $('help-dialog').open) return;
   await invoke(window.coze.overlay(true));
@@ -229,10 +242,21 @@ async function openHelp() {
 async function closeHelp() {
   // Unload the document to stop tutorial audio when returning to an account.
   $('help-frame').removeAttribute('src'); $('help-dialog').close();
+  showHelpTools(false);
   await invoke(window.coze.overlay(false)); $('help').focus();
 }
 $('help').addEventListener('click', () => openHelp().catch(() => {}));
 $('empty-help').addEventListener('click', () => openHelp().catch(() => {}));
+$('help-tools').addEventListener('click', () => showHelpTools($('tools-panel').hidden));
+for (const [id, key] of Object.entries({'tool-remote':'remoteDisplay', 'tool-display':'displayControl', 'tool-catalog':'catalog', 'tool-brand':'brand'})) {
+  $(id).addEventListener('click', async () => {
+    $('tools-error').textContent = '';
+    try {
+      const result = await window.coze.openToolLink(key);
+      if (!result.ok) throw new Error(result.error);
+    } catch { $('tools-error').textContent = '未能打开浏览器，请稍后重试。'; }
+  });
+}
 $('help-close').addEventListener('click', () => closeHelp().catch(() => {}));
 $('help-dialog').addEventListener('cancel', event => { event.preventDefault(); closeHelp().catch(() => {}); });
 window.coze.onHelp(() => openHelp().catch(() => {}));

@@ -11,12 +11,12 @@ const run = (command, args) => execFileSync(command, args, { stdio: 'inherit' })
 run('ditto', ['--norsrc', '--noextattr', path.join(root, 'node_modules/electron/dist/Electron.app'), app]);
 const plist = path.join(app, 'Contents/Info.plist');
 for (const [key, value] of Object.entries({ CFBundleName: '扣子账号浏览器', CFBundleDisplayName: '扣子账号浏览器', CFBundleIdentifier: 'cn.local.cozeaccounts.browser',
-  CFBundleExecutable: 'CozeAccountBrowser', CFBundleIconFile: 'CozeIcon.icns', CFBundleShortVersionString: version, CFBundleVersion: version.split('.').reduce((value, part) => value * 100 + Number(part), 0).toString() })) {
+  CFBundleExecutable: 'CozeAccountBrowser', CFBundleIconFile: 'ZhijinhuaApp.icns', CFBundleShortVersionString: version, CFBundleVersion: version.split('.').reduce((value, part) => value * 100 + Number(part), 0).toString() })) {
   try { execFileSync('/usr/libexec/PlistBuddy', ['-c', `Set :${key} ${value}`, plist], { stdio: 'pipe' }); }
   catch { run('/usr/libexec/PlistBuddy', ['-c', `Add :${key} string ${value}`, plist]); }
 }
 fs.renameSync(path.join(app, 'Contents/MacOS/Electron'), path.join(app, 'Contents/MacOS/CozeAccountBrowser'));
-fs.copyFileSync(path.join(root, 'assets/CozeIcon.icns'), path.join(app, 'Contents/Resources/CozeIcon.icns'));
+fs.copyFileSync(path.join(root, 'assets/ZhijinhuaApp.icns'), path.join(app, 'Contents/Resources/ZhijinhuaApp.icns'));
 const appSource = path.join(app, 'Contents/Resources/app'); fs.mkdirSync(appSource, { recursive: true });
 for (const dir of ['src', 'ui', 'assets', 'bin']) run('ditto', ['--norsrc', '--noextattr', path.join(root, dir), path.join(appSource, dir)]);
 fs.writeFileSync(path.join(appSource, 'package.json'), JSON.stringify({ name: 'coze-account-browser', productName: '扣子账号浏览器', version, main: 'src/main.cjs', private: true }, null, 2));

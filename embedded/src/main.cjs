@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -14,6 +14,12 @@ const { checkedVersion } = require('./compatibility.cjs');
 const { request } = require('./control-transport.cjs');
 const { platforms } = require('./platforms.cjs');
 const { deadline } = require('./closing.cjs');
+const TOOL_LINKS = Object.freeze({
+  remoteDisplay: 'https://soft.jiunai.tech/mac-remote-display/',
+  displayControl: 'https://soft.jiunai.tech/mac-display-control/',
+  catalog: 'https://soft.jiunai.tech/',
+  brand: 'https://zhijinhua.cn/'
+});
 const testing = process.argv.includes('--self-test');
 const rootIndex = process.argv.indexOf('--data-root');
 const root = rootIndex >= 0 ? path.resolve(process.argv[rootIndex + 1]) : testing ? fs.mkdtempSync(path.join(os.tmpdir(), 'coze-browser-test-')) :
@@ -45,8 +51,8 @@ else {
     // leak into it (session.fetch/custom protocol headers reject non-ASCII).
     app.userAgentFallback = app.userAgentFallback.replaceAll('扣子账号浏览器', 'CozeAccountsBrowser');
     app.setAboutPanelOptions({ applicationName: '扣子账号浏览器', applicationVersion: app.getVersion(),
-      iconPath: path.join(__dirname, '../assets/coze-multi-account.png'),
-      copyright: '非官方辅助工具 · 一个窗口，多个独立账号' });
+      iconPath: path.join(__dirname, '../assets/zhijinhua-app.png'),
+      copyright: '智进化 · 多账号工作台' });
     const store = new Store(root, testing || rootIndex >= 0 ? null : path.join(app.getPath('appData'), 'CozeAccounts', 'accounts.json'));
     win = new BrowserWindow({ width: 1280, height: 840, minWidth: 960, minHeight: 650,
       title: '扣子账号浏览器', titleBarStyle: 'hiddenInset', backgroundColor: '#f6f7fb',
@@ -75,6 +81,10 @@ else {
       } catch (err) { notify.flush(); return { ok: false, error: err.message || '操作未完成。' }; }
     });
     handle('state', () => browser.state());
+    handle('tool-link', key => {
+      if (typeof key !== 'string' || !Object.hasOwn(TOOL_LINKS, key)) throw new Error('工具链接不可用。');
+      return shell.openExternal(TOOL_LINKS[key]);
+    });
     handle('sidebar', value => browser.setSidebarCollapsed(value));
     handle('select', id => { store.get(id); browser.select(id); return browser.state(); });
     handle('open-all', () => browser.openAll(store.platformView));

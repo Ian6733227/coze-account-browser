@@ -245,3 +245,17 @@ dialog input::placeholder, dialog textarea::placeholder { color: #858580; }
 .sidebar-collapsed .list-heading > div { display: block; }
 .sidebar-collapsed .list-heading h1 { margin: 0; }
 .sidebar-collapsed .list-heading p, .sidebar-collapsed #platform-name { display: none; }
+
+
+.help-actions { display: flex; gap: 8px; }
+.help-dialog iframe[hidden], .tools-panel[hidden] { display: none; }
+.tools-panel { width: min(100%, 650px); height: calc(100% - 52px); margin: 0 auto; padding: 32px 26px; overflow: auto; }
+.tools-panel h2 { margin: 0 0 18px; font-size: 22px; }
+.tool-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.tool-list li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.tool-list strong, .tool-list small { display: block; }
+.tool-list small { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.tool-list button { white-space: nowrap; }
+.tools-links { display: flex; gap: 12px; margin-top: 20px; }
+.tools-links button { padding-inline: 0; border-color: transparent; background: transparent; color: #424b60; text-decoration: underline; text-underline-offset: 3px; }
+#tools-error { margin-top: 12px; }

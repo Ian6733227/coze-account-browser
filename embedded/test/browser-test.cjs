@@ -193,6 +193,24 @@ exports.run = async ctx => {
       const evidence = process.env.COZE_BROWSER_EVIDENCE; fs.mkdirSync(evidence,{recursive:true});
       fs.writeFileSync(path.join(evidence,'help-window.png'),(await win.webContents.capturePage()).toPNG());
     }
+    const { shell } = require('electron');
+    const launchExternal = shell.openExternal;
+    const external = [];
+    shell.openExternal = async url => { external.push(url); };
+    try {
+      await win.webContents.executeJavaScript("document.querySelector('#help-tools').click()");
+      assert.equal(await win.webContents.executeJavaScript("!document.querySelector('#tools-panel').hidden && document.querySelector('#help-frame').hidden"), true);
+      assert.deepEqual(external, []);
+      await win.webContents.executeJavaScript("document.querySelector('#tool-remote').click()");
+      await until(() => external.length === 1, 'tools link opens only on click');
+      assert.deepEqual(external, ['https://soft.jiunai.tech/mac-remote-display/']);
+      const rejected = await win.webContents.executeJavaScript("window.coze.openToolLink('https://example.com')");
+      assert.equal(rejected.ok, false);
+      await win.webContents.executeJavaScript("document.querySelector('#help-tools').click()");
+      assert.equal(await win.webContents.executeJavaScript("document.querySelector('#tools-panel').hidden"), true);
+      await until(() => win.webContents.executeJavaScript("document.querySelector('#help-frame').contentDocument?.querySelector('video')?.readyState >= 1"), 'return to help');
+      console.log('PASS optional More Tools opens only approved URLs and returns to help');
+    } finally { shell.openExternal = launchExternal; }
     await win.webContents.executeJavaScript(`document.querySelector('#help-close').click()`);
     await until(() => !browser.overlay, 'help close');
     assert.equal(browser.selected, helpAccount); assert.equal(browser.attached.webContents.id, helpRenderer);

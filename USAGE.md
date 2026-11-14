@@ -48,3 +48,5 @@ Electron 版本由 package-lock.json 锁定；打包脚本核对实际运行时�
 没有完成真实账号验收、Brave 同负载对比或 Apple 公证。未提供其他桌面平台安装包。保存使用临时文件加 rename，未增加 fsync 断电保证；clearProfile 的两个文件不是事务。配置缺失且已有 Sessions 时，仍存在原有默认列表初始化风险，请先按恢复说明排查。
 
 本项目基于 Electron/Chromium，名称与第三方图标的权利归原权利人；图标来源见[资源说明](embedded/assets/README.md)。
+
+账号登录后自动读取平台昵称和头像。可在上方点「同步头像昵称」重试，在「编辑」里切换「优先显示平台昵称」或使用自定义头像。

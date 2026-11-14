@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
-const { trustedPage, trustedAvatar, PROFILE_SCRIPT, isDefaultAvatar } = require('../src/identity.cjs');
+const { trustedPage, trustedAvatar, PROFILE_SCRIPT, profileScript, isDefaultAvatar } = require('../src/identity.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 test('shared anonymous site avatar is recognized without suppressing other pictures', () => {
@@ -26,4 +26,17 @@ test('page-side profile extraction returns only own nickname and avatar URL', as
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { name: '测试昵称', avatarURL: 'https://p3-passport.byteacctimg.com/a.png' });
   context.fetch = async () => ({ ok: true, json: async () => ({ message: 'error', data: { name: '不能同步' } }) });
   assert.equal(await vm.runInNewContext(PROFILE_SCRIPT, context), null);
+});
+
+
+test('Doubao reads its own display identity and rejects a signed-out router response', () => {
+  const payload = {user_id_str:'fixture',name:'示例用户',avatar_url:'https://p3-passport.byteacctimg.com/a.png',secret:'hidden'};
+  const ctx = {document:{querySelector:()=>null},window:{_ROUTER_DATA:{loaderData:{chat_layout:{accountInfo:{data:payload}}}}}};
+  const profile = vm.runInNewContext(profileScript('doubao'), ctx);
+  assert.deepEqual(JSON.parse(JSON.stringify(profile)),{name:payload.name,avatarURL:payload.avatar_url});
+  payload.error_code = 13;
+  assert.equal(vm.runInNewContext(profileScript('doubao'), ctx),null);
+  assert.equal(trustedPage('https://www.coze.cn/','doubao'),false);
+  assert.equal(trustedPage('https://www.doubao.com/chat/','doubao'),true);
+  assert.equal(trustedAvatar('https://p3-passport.byteacctimg.com/a.png','workbuddy'),false);
 });

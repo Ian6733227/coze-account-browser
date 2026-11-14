@@ -1,5 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { Menu } = require('electron');
 const { platforms } = require('../src/platforms.cjs');
 const { Store } = require('../src/store.cjs');
@@ -44,12 +46,32 @@ exports.run = async ({ win, browser, store, root }) => {
       if (id !== 'coze') accounts.push(store.add(info.label + ' 合成账号', '', false, id));
     }
     accounts.push(store.add('豆包第二个合成账号', '', false, 'doubao'));
+    const avatar = fs.readFileSync(path.join(__dirname, '../ui/platform-icons/all.png'));
+    const identity = index => '平台测试昵称 ' + index;
     for (const [index, a] of accounts.entries()) {
       const entry = browser.entry(a.id);
-      await entry.session.cookies.set({url: platforms[a.platform || 'coze'].home, name: 'fixture', value: String(index), secure: true, path: '/'});
-      await entry.session.protocol.handle('https', () => new Response(
-        `<!doctype html><title>Platform fixture ${index}</title><p>Anonymous platform fixture</p>`,
-        { headers: { 'Content-Type': 'text/html' } }));
+      const platform = a.platform || 'coze';
+      const home = platforms[platform].home;
+      const avatarURL = new URL('/fixture-avatar.png', home).href;
+      const name = identity(index);
+      const img = `<img src="${avatarURL}" alt="${name}">`;
+      const markup = {
+        coze: '',
+        doubao: `<img data-testid="chat_header_avatar_button" src="${avatarURL}"><span>${name}</span>`,
+        aily: `<button data-testid="sidebar_footer_user_menu_trigger">${img}<span class="truncate">${name}</span></button>`,
+        workbuddy: `<button class="user-menu-trigger" data-track-id="user_avatar_menu"><span class="user-menu-trigger-avatar">${img}</span><span class="user-menu-trigger-name">${name}</span></button>`,
+        qwenwork: `<script>sessionStorage.setItem('qwen-work.auth-identity.v1',JSON.stringify({version:1,cachedAt:Date.now(),userId:'synthetic',displayName:${JSON.stringify(name)},avatarUrl:${JSON.stringify(avatarURL)}}))</script>`
+      }[platform];
+      await entry.session.cookies.set({url: home, name: 'fixture', value: String(index), secure: true, path: '/'});
+      await entry.session.protocol.handle('https', req => {
+        if (new URL(req.url).pathname === '/fixture-avatar.png') return new Response(avatar, { headers: { 'Content-Type': 'image/png' } });
+        if (new URL(req.url).pathname === '/passport/account/info/v2/') return new Response(JSON.stringify(
+          {message:'success',data:{user_id_str:'synthetic',name,avatar_url:avatarURL}}),
+          {headers:{'Content-Type':'application/json'}});
+        return new Response(`<!doctype html><meta charset=utf-8><title>Platform fixture ${index}</title>${markup}`, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+      });
     }
     browser.openStartupAccounts();
     for (const [index, a] of accounts.entries()) {
@@ -59,6 +81,16 @@ exports.run = async ({ win, browser, store, root }) => {
       assert.equal(await wc.executeJavaScript('document.cookie'), 'fixture=' + index);
       assert.equal(await wc.executeJavaScript('typeof window.coze'), 'undefined');
     }
+    await until(() => accounts.every((account, index) => {
+      const profile = store.get(account.id).profile;
+      return profile.name === identity(index) && profile.avatar.startsWith('data:image/png;base64,');
+    }), 'automatic nicknames and avatars across five platforms');
+    const custom = accounts.at(-1);
+    assert.equal(browser.state().accounts.find(a => a.id === custom.id).displayName, custom.name);
+    store.edit(custom.id, custom.name, '', false, 'custom', 'data:image/png;base64,' + avatar.toString('base64'));
+    await browser.syncProfile(custom.id, true);
+    assert.equal(browser.state().accounts.find(a => a.id === custom.id).displayAvatar, store.get(custom.id).customAvatar);
+    console.log('PASS automatic profile name and avatar for five platforms and independent custom overrides');
     console.log('PASS all five platform homes, separate sessions and no privileged bridge in remote pages');
     await until(async () => (await rowIDs()).length === accounts.length, 'combined accounts');
     await checkIcon('all');
@@ -87,7 +119,7 @@ exports.run = async ({ win, browser, store, root }) => {
     await until(() => shell('document.querySelector("#editor").open'), 'new account editor');
     assert.equal(await shell('document.querySelector("#account-platform").value'), 'qwenwork');
     assert.equal(await shell('document.querySelector("#account-platform").options.length'), 5);
-    assert.equal(await shell('document.querySelector("#profile-name-field").hidden'), true);
+    assert.equal(await shell('document.querySelector("#profile-name").checked'), true);
     await shell('document.querySelector("#cancel").click(); null');
     await until(() => !browser.overlay, 'new account editor dismissed');
     browser.setSidebarCollapsed(true);

@@ -147,7 +147,6 @@ function render(value) {
   $('all-open-label').textContent = openLabel;
   $('all').setAttribute('aria-label', openLabel);
   $('all').title = openLabel;
-  $('sync').hidden = Boolean(current?.platform && current.platform !== 'coze');
   $('sync').disabled = !current?.running || current?.syncing || current?.pausing;
   $('sync').textContent = current?.syncing ? '同步中…' : '同步头像昵称';
   const recovery = Boolean(current?.running && (current.crashed || current.pageError));
@@ -195,14 +194,12 @@ async function editor(id = null) {
   }));
   picker.value = platform;
   picker.disabled = Boolean(id);
-  $('profile-name-field').hidden = platform !== 'coze';
-  $('restore-avatar').textContent = platform === 'coze' ? '使用扣子头像' : '使用默认头像';
+  $('restore-avatar').textContent = '使用同步头像';
   $('editor-title').textContent = id ? '编辑账号' : '添加账号';
   $('account-name').value = account?.name || defaultAccountName(platform);
   $('note').value = account?.note || ''; $('form-error').textContent = '';
-  $('profile-name').checked = platform === 'coze' && (account?.useProfileName ?? true);
-  $('profile-name').disabled = platform !== 'coze';
-  $('profile-hint').textContent = platform !== 'coze' ? '可为这个账号起一个便于辨认的名称。' : account?.profile.name ? `扣子昵称：${account.profile.name}` : '登录后自动获取当前账号的昵称与头像。';
+  $('profile-name').checked = account?.useProfileName ?? true;
+  $('profile-hint').textContent = account?.profile.name ? `平台昵称：${account.profile.name}` : '登录后自动读取当前账号的昵称与头像。';
   $('avatar-editor').hidden = !id; $('clear-account-data').hidden = !id; $('clear-account-data').disabled = account?.pausing === true;
   $('delete-account').hidden = !id; $('delete-account').disabled = account?.pausing === true;
   avatarMode = account?.avatarMode || 'sync'; customAvatar = account?.customAvatar || '';
@@ -231,11 +228,11 @@ function defaultAccountName(platform) { return `${platformLabel(platform)}账号
 $('platform-switch').addEventListener('click', () => invoke(window.coze.platformMenu()).catch(() => {}));
 $('account-platform').addEventListener('change', () => {
   const input = $('account-name'), platform = $('account-platform').value;
-  if (Object.keys(state.platforms || {}).some(id => input.value === defaultAccountName(id))) input.value = defaultAccountName(platform);
-  $('profile-name-field').hidden = platform !== 'coze';
-  $('profile-name').checked = platform === 'coze';
-  $('profile-name').disabled = platform !== 'coze';
-  $('profile-hint').textContent = platform === 'coze' ? '登录后自动获取当前账号的昵称与头像。' : '可为这个账号起一个便于辨认的名称。';
+  if (Object.keys(state.platforms || {}).some(id => input.value === defaultAccountName(id))) {
+    input.value = defaultAccountName(platform);
+    $('profile-name').checked = true;
+  }
+  $('profile-hint').textContent = '登录后自动读取当前账号的昵称与头像。';
 });
 $('add').addEventListener('click', () => editor().catch(() => {}));
 $('edit').addEventListener('click', () => editor(state.selected).catch(() => {}));

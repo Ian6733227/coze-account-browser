@@ -148,11 +148,6 @@ function render(value) {
   for (const id of ['edit','archive','pause','resume','sync']) $(id).disabled = !current;
   $('pause').disabled = !current?.running;
   for (const id of ['pause','resume']) $(id).disabled ||= current?.pausing === true;
-  $('all').disabled = !scopedAccounts.some(a => !a.archived) || scopedAccounts.some(a => !a.archived && a.pausing);
-  const openLabel = state.platformView && state.platformView !== 'all' ? '打开本平台账号' : '打开全部账号';
-  $('all-open-label').textContent = openLabel;
-  $('all').setAttribute('aria-label', openLabel);
-  $('all').title = openLabel;
   $('sync').disabled = !current?.running || current?.syncing || current?.pausing;
   $('sync').textContent = current?.syncing ? '同步中…' : '同步头像昵称';
   const recovery = Boolean(current?.running && (current.crashed || current.pageError));
@@ -277,7 +272,6 @@ $('form').addEventListener('submit', async event => { event.preventDefault();
 });
 $('account-name').addEventListener('input', () => { $('profile-name').checked = false; });
 $('archived').addEventListener('change', () => render(state));
-$('all').addEventListener('click', () => invoke(window.coze.openAll()).catch(() => {}));
 $('sidebar-toggle').addEventListener('click', () => invoke(window.coze.sidebar(!state.sidebarCollapsed)).catch(() => {}));
 $('archive').addEventListener('click', () => invoke(window.coze.archive(state.selected)).catch(() => {}));
 $('clear-account-data').addEventListener('click', async () => {

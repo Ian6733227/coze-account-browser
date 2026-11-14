@@ -205,8 +205,8 @@ class AccountBrowser {
       if (force) throw new Error(message);
     } finally { check.busy = false; this.onUpdate(); }
   }
-  openAll(view = 'all') {
-    const accounts = this.store.accounts.filter(a => !a.archived && matchesPlatform(a, view));
+  openAll() {
+    const accounts = this.store.accounts.filter(a => !a.archived);
     // Validate the whole action before opening any account.
     for (const a of accounts) this.assertAvailable(this.entries.get(a.id));
     for (const a of accounts) this.ensure(a.id);

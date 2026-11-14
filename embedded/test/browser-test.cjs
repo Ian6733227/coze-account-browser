@@ -20,6 +20,7 @@ exports.run = async ctx => {
   if (process.argv.includes('--mock-acceptance')) return require('./mock-acceptance-test.cjs').run(ctx);
   if (process.argv.includes('--memory-check')) return require('./memory-test.cjs').run(ctx);
   const { app, win, browser, store, root } = ctx;
+  assert.equal(await win.webContents.executeJavaScript('!document.getElementById("all") && typeof window.coze.openAll === "undefined"'), true);
   assert.equal(await win.webContents.executeJavaScript('document.querySelector("footer span:last-child").textContent'), 'Chromium · ' + require('../package.json').version);
   const cli = async (...args) => {
     const env={...process.env,ELECTRON_RUN_AS_NODE:'1'};
@@ -233,7 +234,10 @@ exports.run = async ctx => {
     console.log('PASS authorization popup shares account session/opener and stays in one window; unsafe schemes denied');
     const id = browser.selected, oldID = primary.view.webContents.id; await browser.pause(id); assert.equal(entry.tabs.length, 0); assert.equal(win.contentView.children.filter(v => v.getVisible()).length, 0);
     assert.equal(browser.state().accounts.find(a => a.id === id).paused, true);
-    browser.select(id); await ready(browser.activeTab().view.webContents); assert.notEqual(browser.activeTab().view.webContents.id, oldID);
+    await win.webContents.executeJavaScript(`document.querySelector('#accounts [data-account-id="${id}"]').click()`);
+    await until(() => Boolean(browser.activeTab()), 'sidebar account click reopens closed page');
+    await ready(browser.activeTab().view.webContents);
+    assert.notEqual(browser.activeTab().view.webContents.id, oldID);
     assert.equal(browser.state().accounts.find(a => a.id === id).paused, false);
     assert.equal((await probe(browser.activeTab().view.webContents)).stored, 'synthetic-5'); assert.equal((await probe(browser.activeTab().view.webContents)).cookie, 'identity=synthetic-5');
     const stablePath = store.sessionPath(id); store.edit(id, '第六个测试账号', '测试'); assert.equal(store.sessionPath(id), stablePath);

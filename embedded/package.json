@@ -1,6 +1,6 @@
 {
   "name": "coze-account-browser",
-  "version": "2.4.8",
+  "version": "2.4.9",
   "description": "Single-window workbench for independent AI platform accounts",
   "private": true,
   "main": "src/main.cjs",

@@ -140,11 +140,7 @@ nav { flex: 1; min-height: 0; overflow: auto; padding: 0 10px; }
 }
 .sidebar-footer { padding: 14px 14px 16px; border-top: 1px solid #e8e8e4; }
 .sidebar-footer > button { width: 100%; justify-content: flex-start; padding: 9px 11px; }
-.sidebar-footer > #all { border-color: #deded9; background: #fff; color: #272724; }
-.sidebar-footer > #all:hover { background: var(--hover); }
-.all-icon { display: block; flex-shrink: 0; }
-.all-compact-label { display: none; }
-.sidebar-footer label { display: flex; align-items: center; gap: 7px; margin: 13px 3px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.sidebar-footer label { display: flex; align-items: center; gap: 7px; margin: 0 3px; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .sidebar-footer label input { width: 14px; height: 14px; margin: 0; accent-color: var(--primary); }
 .sidebar-footer > #help { margin-top: 10px; border-color: transparent; background: transparent; color: #52524f; }
 .sidebar-footer > #help:hover { background: var(--hover); }
@@ -206,7 +202,7 @@ dialog input::placeholder, dialog textarea::placeholder { color: #858580; }
 .sidebar-collapsed .list-heading { justify-content: center; padding: 16px 0 12px; }
 .sidebar-collapsed .list-heading > div, .sidebar-collapsed .account-details,
 .sidebar-collapsed .sidebar-footer label, .sidebar-collapsed .sidebar-footer p,
-.sidebar-collapsed .all-label, .sidebar-collapsed .help-label { display: none; }
+.sidebar-collapsed .help-label { display: none; }
 .sidebar-collapsed nav { padding: 0 8px; }
 .sidebar-collapsed .account { justify-content: center; height: 58px; min-height: 58px; padding: 10px 0; gap: 0; }
 .sidebar-collapsed .avatar { width: 36px; height: 36px; font-size: 15px; }
@@ -214,9 +210,7 @@ dialog input::placeholder, dialog textarea::placeholder { color: #858580; }
 .sidebar-collapsed .account-number { left: 34px; top: 35px; }
 .sidebar-collapsed .sidebar-footer { padding: 13px 12px; }
 .sidebar-collapsed .sidebar-footer > button { justify-content: center; }
-.sidebar-collapsed .sidebar-footer > #all { flex-direction: column; gap: 4px; padding: 8px 3px; }
-.sidebar-collapsed .all-compact-label { display: block; max-width: 2em; overflow-wrap: anywhere; font-size: 12px; line-height: 1.35; }
-.sidebar-collapsed .sidebar-footer > #help { padding: 9px 0; }
+.sidebar-collapsed .sidebar-footer > #help { padding: 9px 0; margin-top: 0; }
 .sidebar-collapsed #sidebar-toggle svg { transform: rotate(180deg); }
 @media (max-width: 1100px) {
   .topline { gap: 6px; padding: 0 12px; }

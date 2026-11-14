@@ -76,7 +76,7 @@ else {
       if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== shellURL) throw new Error('不允许访问。');
       try {
         if (quitInProgress) throw new Error('浏览器正在退出。');
-        if (browser.overlay && ['platform-menu','account-menu','select','open-all','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
+        if (browser.overlay && ['platform-menu','account-menu','select','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
         return { ok: true, value: await fn(payload) };
       } catch (err) { notify.flush(); return { ok: false, error: err.message || '操作未完成。' }; }
     });
@@ -87,7 +87,6 @@ else {
     });
     handle('sidebar', value => browser.setSidebarCollapsed(value));
     handle('select', id => { store.get(id); browser.select(id); return browser.state(); });
-    handle('open-all', () => browser.openAll(store.platformView));
     handle('platform-menu', () => {
       const options = [['all', '全部平台'], ...Object.entries(platforms).map(([id, platform]) => [id, platform.label])];
       const menu = Menu.buildFromTemplate(options.map(([id, label]) => ({

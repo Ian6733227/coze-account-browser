@@ -32,7 +32,7 @@ function fixture() {
   const state={selected:'a1',accounts,tabs:[]},calls=[];let render;
   const ok=value=>Promise.resolve({ok:true,value});
   const coze={onState:fn=>{render=fn;},onHelp(){},state:()=>new Promise(()=>{}),select:id=>{calls.push(['select',id]);return ok();},tab:id=>{calls.push(['tab',id]);return ok();},closeTab:()=>ok(),overlay:()=>ok(),chooseAvatar:()=>ok('data:image/png;base64,new'),edit:(...args)=>{calls.push(['edit',...args]);return ok();}};
-  for(const name of ['sidebar','archive','pause','syncProfile','openAll','add'])coze[name]=()=>ok();
+  for(const name of ['sidebar','archive','pause','syncProfile','add'])coze[name]=()=>ok();
   const context=vm.createContext({document,window:{coze}});
   vm.runInContext(fs.readFileSync(process.env.COZE_UI_SOURCE||path.join(__dirname,'../ui/app.js'),'utf8'),context);
   render(state);
@@ -57,7 +57,7 @@ test('pause state disables only the closing account and its actions; unchanged t
   const {state,render,ids}=fixture();state.tabs=[{id:'tab1',title:'扣子',primary:true,active:true},{id:'tab2',title:'其他页',primary:false,active:false}];render(state);
   const firstTab=ids.get('tabs').children[0];state.accounts[0].pausing=true;render(state);
   assert.equal(ids.get('status').textContent,'正在关闭网页…');assert.equal(ids.get('accounts').children[0].disabled,true);assert.equal(ids.get('accounts').children[1].disabled,false);
-  for(const id of ['pause','resume','sync','all'])assert.equal(ids.get(id).disabled,true,id);
+  for(const id of ['pause','resume','sync'])assert.equal(ids.get(id).disabled,true,id);
   assert.equal(ids.get('tabs').children[0],firstTab);assert.equal(firstTab.disabled,true);
   state.accounts[0].pausing=false;render(state);assert.equal(ids.get('pause').disabled,false);
 });

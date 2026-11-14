@@ -30,10 +30,10 @@ async function main() {
     const selected = switched.result.selected;
     await stop();
     const after = await start(); assert.equal(after.selected, selected);
-    assert.equal(after.accounts.filter(a => a.running).length, 1);
+    assert.equal(after.accounts.filter(a => a.running).length, after.accounts.filter(a => !a.archived).length);
     assert.equal(after.pages.length, 1); assert.equal(after.version, build.version);
     await stop(); success = true;
-    console.log('PASS normal signed startup, IPC selection, two normal quits and restored last account with one open page');
+    console.log('PASS normal signed startup, IPC selection, two normal quits and restored selection with every visible account open');
   } finally {
     if (child) { child.kill('SIGTERM'); await Promise.race([closed.catch(() => {}), sleep(10000)]); }
     if (success) fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

@@ -101,9 +101,10 @@ class AccountBrowser {
     return entry;
   }
   select(id, initialURL = this.home) { this.ensure(id, initialURL); this.selected = id; this.rememberSelection(); this.display(); this.onUpdate(true); this.syncProfile(id).catch(() => {}); }
-  restoreSelection() {
+  openStartupAccounts() {
     const selection = this.store.startupSelection();
     if (selection) this.select(selection.accountId, selection.url || this.home);
+    this.openAll();
   }
   rememberSelection() {
     if (this.disposing || !this.selected || this.pausing.has(this.selected)) return;

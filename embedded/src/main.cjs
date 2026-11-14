@@ -31,7 +31,14 @@ if (!app.requestSingleInstanceLock()) {
 }
 else {
   let win, browser, control, quitting = false, quitInProgress = false;
-  app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
+  function showWindow() {
+    if (!win || win.isDestroyed() || quitInProgress) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+  app.on('second-instance', showWindow);
+  app.on('activate', showWindow);
   app.whenReady().then(async () => {
     // HTTP User-Agent is a byte header; the Chinese app display name must not
     // leak into it (session.fetch/custom protocol headers reject non-ASCII).
@@ -43,6 +50,11 @@ else {
     win = new BrowserWindow({ width: 1280, height: 840, minWidth: 960, minHeight: 650,
       title: '扣子账号浏览器', titleBarStyle: 'hiddenInset', backgroundColor: '#f6f7fb',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+    win.on('close', event => {
+      if (quitting) return;
+      event.preventDefault();
+      if (!quitInProgress) win.minimize();
+    });
     browser = new AccountBrowser(win, store);
     const warningFile = path.join(root, 'shutdown-warning.json');
     if (fs.existsSync(warningFile)) browser.startupWarning = '上次退出时保存未确认，请检查各账号网页；登录资料目录未清除。';
@@ -127,13 +139,12 @@ else {
         click: () => { if (!browser.overlay) win.webContents.send('coze:show-help'); } }] }
     ]));
     await win.loadURL(shellURL);
-    if (!testing) browser.restoreSelection();
+    if (!testing) browser.openStartupAccounts();
     if (!process.argv.includes('--no-control')) control = await startControl({browser,store,win,version:app.getVersion(),isBusy:() => quitInProgress});
     if (testing) {
       try { await require(process.argv.includes('--background-check') ? '../test/background-test.cjs' : '../test/browser-test.cjs').run({ app, win, browser, store, root }); await control?.close(); await browser.dispose(); app.exit(0); }
       catch (err) { console.error('BROWSER_TEST_FAILED', err?.stack || String(err)); await control?.close(); await browser.dispose(); app.exit(1); }
     } else {
-      win.on('close', event => { if (!quitting) { event.preventDefault(); app.quit(); } });
       app.on('before-quit', event => {
         if (quitting) return;
         event.preventDefault(); if (quitInProgress) return; quitInProgress = true;
@@ -149,7 +160,6 @@ else {
           fs.rmSync(warningFile, { force: true }); quitting = true; app.quit();
         })().catch(() => { console.error('COZE_SHUTDOWN_UNCONFIRMED'); app.exit(1); });
       });
-      app.on('activate', () => { if (win && !win.isDestroyed()) { win.show(); win.focus(); } });
     }
   }).catch(err => { dialog.showErrorBox('启动失败', err.message); app.exit(1); });
 }

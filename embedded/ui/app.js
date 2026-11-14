@@ -11,6 +11,8 @@ async function invoke(promise) {
   try { const result = await promise; if (!result.ok) throw new Error(result.error); return result.value; }
   catch (err) { $('message').textContent = err.message; $('message').className = 'error'; throw err; }
 }
+function platformLabel(id) { return state.platforms?.[id]?.label || '扣子'; }
+function matchesView(account) { return !state.platformView || state.platformView === 'all' || (account.platform || 'coze') === state.platformView; }
 function selected() { return state.accounts.find(a => a.id === state.selected); }
 function fillAvatar(element, value, fallback) {
   const prior = avatars.get(element);
@@ -30,22 +32,74 @@ function pageStatus(account, current) {
   return account.clearing ? '正在清除登录资料…' : account.pausing ? '正在关闭网页…' : account.crashed ? '网页已退出 · 请刷新' : account.pageError ? '加载失败 · 请刷新' : account.loading ? '加载中' :
     account.running ? (current ? '当前网页' : '后台运行') + (account.identityStatus === 'unconfirmed' ? ' · 昵称待确认' : '') : account.paused ? '网页已关闭' : '网页未打开';
 }
+function bindAccountRow(button, id) {
+  let press = null, suppressClick = false, menuOpen = false;
+  function cancelPress() {
+    if (press) clearTimeout(press.timer);
+    press = null;
+  }
+  async function openMenu(event) {
+    event.preventDefault();
+    cancelPress();
+    if (menuOpen || button.disabled || !button.isConnected) return;
+    menuOpen = true;
+    const bounds = button.getBoundingClientRect();
+    try {
+      await invoke(window.coze.accountMenu(id, event.clientX || bounds.left + 12,
+        event.clientY || bounds.bottom, $('archived').checked));
+    } catch { /* invoke displays the error. */ }
+    finally { menuOpen = false; }
+  }
+  button.addEventListener('click', event => {
+    if (suppressClick && event.detail) return;
+    if (!(event.detail >= 2)) invoke(window.coze.select(id)).catch(() => {});
+  });
+  button.addEventListener('contextmenu', openMenu);
+  button.addEventListener('dblclick', openMenu);
+  button.addEventListener('keydown', event => {
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
+  });
+  button.addEventListener('pointerdown', event => {
+    cancelPress();
+    if (event.button !== 0 || event.ctrlKey) return;
+    suppressClick = false;
+    press = { x: event.clientX, y: event.clientY, timer: setTimeout(() => {
+      suppressClick = true;
+      openMenu(event);
+    }, 550) };
+  });
+  button.addEventListener('pointermove', event => {
+    if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 8) cancelPress();
+  });
+  for (const name of ['pointerup', 'pointercancel', 'pointerleave']) button.addEventListener(name, cancelPress);
+}
 function render(value) {
   state = value; const current = selected();
   document.body.classList.toggle('sidebar-collapsed', state.sidebarCollapsed === true);
   const toggleLabel = state.sidebarCollapsed ? '展开账号侧栏' : '收起账号侧栏';
   $('sidebar-toggle').title = toggleLabel; $('sidebar-toggle').setAttribute('aria-label', toggleLabel);
   $('sidebar-toggle').setAttribute('aria-expanded', String(!state.sidebarCollapsed));
-  const archivedRunning = state.accounts.filter(a => a.archived && a.running).length;
-  $('count').textContent = `${state.accounts.filter(a => !a.archived).length} 个账号 · ${state.accounts.filter(a => a.running).length} 个网页运行中${archivedRunning ? `（含 ${archivedRunning} 个已隐藏）` : ''}`;
+  const viewName = state.platformView && state.platformView !== 'all' ? platformLabel(state.platformView) : '全部平台';
+  $('platform-name').textContent = viewName;
+  $('platform-switch').title = '切换平台 · ' + viewName;
+  $('platform-switch').setAttribute('aria-label', '切换平台 · ' + viewName);
+  const scopedAccounts = state.accounts.filter(matchesView);
+  const showPlatformLabels = (!state.platformView || state.platformView === 'all') && scopedAccounts.some(a => a.platform && a.platform !== 'coze');
+  const archivedRunning = scopedAccounts.filter(a => a.archived && a.running).length;
+  $('count').textContent = `${scopedAccounts.filter(a => !a.archived).length} 个账号 · ${scopedAccounts.filter(a => a.running).length} 个网页运行中${archivedRunning ? `（含 ${archivedRunning} 个已隐藏）` : ''}`;
   const accountScroll = $('accounts').scrollTop;
   const nameCounts = new Map();
   for (const a of state.accounts) nameCounts.set(a.displayName, (nameCounts.get(a.displayName) || 0) + 1);
   const present = new Set(state.accounts.map(a => a.id));
   for (const id of accountRows.keys()) if (!present.has(id)) accountRows.delete(id);
   const rows = [];
-  state.accounts.forEach((a, index) => {
-    if (a.archived && !$('archived').checked && a.id !== state.selected) return;
+  const accountIndexes = new Map(state.accounts.map((account, index) => [account.id, index]));
+  const order = new Set([...(state.sidebarOrder || []), ...accountIndexes.keys()]);
+  for (const id of order) {
+    const index = accountIndexes.get(id);
+    if (index === undefined) continue;
+    const a = state.accounts[index];
+    if (!matchesView(a) || (a.archived && !$('archived').checked && a.id !== state.selected)) continue;
     let row = accountRows.get(a.id);
     if (!row) {
       const button = document.createElement('button'), avatar = document.createElement('span'), badge = document.createElement('span');
@@ -53,7 +107,7 @@ function render(value) {
       button.dataset.accountId = a.id; avatar.className = 'avatar'; avatar.style.setProperty('--avatar-color', avatarColor(a.id));
       badge.className = 'account-number'; badge.setAttribute('aria-hidden', 'true'); details.className = 'account-details';
       name.className = 'account-name'; status.className = 'account-state'; details.append(name, status); button.append(badge, avatar, details, dot);
-      button.addEventListener('click', () => invoke(window.coze.select(a.id)).catch(() => {}));
+      button.setAttribute('aria-haspopup', 'menu'); bindAccountRow(button, a.id);
       row = {button, avatar, badge, name, status, dot}; accountRows.set(a.id, row);
     }
     const {button, avatar, badge, name, status, dot} = row;
@@ -64,13 +118,18 @@ function render(value) {
     badge.hidden = Boolean(a.displayAvatar) && nameCounts.get(a.displayName) < 2;
     badge.textContent = String(index + 1); name.textContent = a.displayName;
     status.textContent = pageStatus(a, a.id === state.selected);
+    if (showPlatformLabels) {
+      status.textContent = platformLabel(a.platform) + ' · ' + status.textContent;
+    }
     if (a.archived) status.textContent += ' · 已隐藏';
     dot.className = `dot ${a.crashed || a.pageError ? 'error' : a.loading ? 'loading' : a.running ? 'running' : ''}`;
     button.title = `${a.displayName} · 账号 ${index + 1} · ${status.textContent}${a.note ? '\n' + a.note : ''}`;
     button.setAttribute('aria-label', `${a.displayName}，账号 ${index + 1}，${status.textContent}`);
     rows.push(button);
-  });
+  }
+  const focusedRow = document.activeElement;
   reconcile($('accounts'), rows);
+  if (document.activeElement !== focusedRow && rows.includes(focusedRow)) focusedRow.focus({ preventScroll: true });
   $('accounts').scrollTop = accountScroll;
   $('name').textContent = current?.displayName || '扣子账号浏览器';
   $('status').textContent = current ? pageStatus(current, true) : '选择账号开始';
@@ -79,15 +138,20 @@ function render(value) {
   for (const id of ['edit','archive','pause','resume','sync']) $(id).disabled = !current;
   $('pause').disabled = !current?.running;
   for (const id of ['pause','resume']) $(id).disabled ||= current?.pausing === true;
-  $('all').disabled = state.accounts.some(a => !a.archived && a.pausing);
+  $('all').disabled = !scopedAccounts.some(a => !a.archived) || scopedAccounts.some(a => !a.archived && a.pausing);
+  const openLabel = state.platformView && state.platformView !== 'all' ? '打开本平台账号' : '打开全部账号';
+  $('all-open-label').textContent = openLabel;
+  $('all').setAttribute('aria-label', openLabel);
+  $('all').title = openLabel;
+  $('sync').hidden = Boolean(current?.platform && current.platform !== 'coze');
   $('sync').disabled = !current?.running || current?.syncing || current?.pausing;
   $('sync').textContent = current?.syncing ? '同步中…' : '同步头像昵称';
   const recovery = Boolean(current?.running && (current.crashed || current.pageError));
   document.querySelector('.empty').style.display = !current?.running || recovery ? 'flex' : 'none';
-  $('empty-title').textContent = recovery ? '这个网页暂时无法显示' : '一个界面，多个扣子账号';
-  $('empty-description').textContent = recovery ? (current.pageError || '网页进程已退出，请重新加载。') : '① 选择左侧账号　② 在右侧扣子网页完成登录。';
+  $('empty-title').textContent = recovery ? '这个网页暂时无法显示' : !scopedAccounts.length ? '还没有账号' : '一个窗口，多个账号';
+  $('empty-description').textContent = recovery ? (current.pageError || '网页进程已退出，请重新加载。') : !scopedAccounts.length ? '点击左侧“＋”添加账号，再在右侧网页登录。' : '① 选择左侧账号　② 在右侧网页完成登录。';
   $('empty-steps').hidden = recovery;
-  $('resume').hidden = recovery;
+  $('resume').hidden = recovery || !current;
   $('recover-reload').hidden = $('recover-home').hidden = !recovery;
   const confirmed = current?.identityStatus === 'confirmed';
   $('sync').title = confirmed ? `网页昵称读取于 ${new Date(current.identityCheckedAt).toLocaleString()}；头像不可用时显示默认图标，不代表登录或任务状态` : '头像与昵称可能是上次同步的缓存；登录后可重新同步';
@@ -120,11 +184,23 @@ function render(value) {
 }
 async function editor(id = null) {
   editing = id; const account = id ? state.accounts.find(a => a.id === id) : null;
-  $('editor-title').textContent = id ? '编辑账号' : '添加账号'; $('account-name').value = account?.name || `扣子账号 ${state.accounts.length + 1}`;
+  const platform = account?.platform || (state.platformView && state.platformView !== 'all' ? state.platformView : 'coze');
+  const picker = $('account-platform');
+  picker.replaceChildren(...Object.entries(state.platforms || {coze:{label:'扣子'}}).map(([value, info]) => {
+    const option = document.createElement('option'); option.value = value; option.textContent = info.label; return option;
+  }));
+  picker.value = platform;
+  picker.disabled = Boolean(id);
+  $('profile-name-field').hidden = platform !== 'coze';
+  $('restore-avatar').textContent = platform === 'coze' ? '使用扣子头像' : '使用默认头像';
+  $('editor-title').textContent = id ? '编辑账号' : '添加账号';
+  $('account-name').value = account?.name || defaultAccountName(platform);
   $('note').value = account?.note || ''; $('form-error').textContent = '';
-  $('profile-name').checked = account?.useProfileName ?? true;
-  $('profile-hint').textContent = account?.profile.name ? `扣子昵称：${account.profile.name}` : '登录后自动获取当前账号的昵称与头像。';
+  $('profile-name').checked = platform === 'coze' && (account?.useProfileName ?? true);
+  $('profile-name').disabled = platform !== 'coze';
+  $('profile-hint').textContent = platform !== 'coze' ? '可为这个账号起一个便于辨认的名称。' : account?.profile.name ? `扣子昵称：${account.profile.name}` : '登录后自动获取当前账号的昵称与头像。';
   $('avatar-editor').hidden = !id; $('clear-account-data').hidden = !id; $('clear-account-data').disabled = account?.pausing === true;
+  $('delete-account').hidden = !id; $('delete-account').disabled = account?.pausing === true;
   avatarMode = account?.avatarMode || 'sync'; customAvatar = account?.customAvatar || '';
   fillAvatar($('avatar-preview'), account?.displayAvatar, '头像');
   $('restore-avatar').disabled = account?.avatarMode !== 'custom';
@@ -147,6 +223,16 @@ $('empty-help').addEventListener('click', () => openHelp().catch(() => {}));
 $('help-close').addEventListener('click', () => closeHelp().catch(() => {}));
 $('help-dialog').addEventListener('cancel', event => { event.preventDefault(); closeHelp().catch(() => {}); });
 window.coze.onHelp(() => openHelp().catch(() => {}));
+function defaultAccountName(platform) { return `${platformLabel(platform)}账号 ${state.accounts.length + 1}`; }
+$('platform-switch').addEventListener('click', () => invoke(window.coze.platformMenu()).catch(() => {}));
+$('account-platform').addEventListener('change', () => {
+  const input = $('account-name'), platform = $('account-platform').value;
+  if (Object.keys(state.platforms || {}).some(id => input.value === defaultAccountName(id))) input.value = defaultAccountName(platform);
+  $('profile-name-field').hidden = platform !== 'coze';
+  $('profile-name').checked = platform === 'coze';
+  $('profile-name').disabled = platform !== 'coze';
+  $('profile-hint').textContent = platform === 'coze' ? '登录后自动获取当前账号的昵称与头像。' : '可为这个账号起一个便于辨认的名称。';
+});
 $('add').addEventListener('click', () => editor().catch(() => {}));
 $('edit').addEventListener('click', () => editor(state.selected).catch(() => {}));
 $('cancel').addEventListener('click', () => closeEditor().catch(() => {}));
@@ -154,7 +240,7 @@ $('editor').addEventListener('cancel', event => { event.preventDefault(); closeE
 $('form').addEventListener('submit', async event => { event.preventDefault();
   try { const name = $('account-name').value.trim(); if (!name) throw new Error('请填写账号名称。');
     if (editing) await invoke(window.coze.edit(editing, name, $('note').value, $('profile-name').checked, avatarMode, customAvatar));
-    else await invoke(window.coze.add(name, $('note').value, $('profile-name').checked));
+    else await invoke(window.coze.add(name, $('note').value, $('profile-name').checked, $('account-platform').value));
     await closeEditor();
   } catch (err) { $('form-error').textContent = err.message; }
 });
@@ -166,6 +252,10 @@ $('archive').addEventListener('click', () => invoke(window.coze.archive(state.se
 $('clear-account-data').addEventListener('click', async () => {
   const id = editing; if (!id) return;
   try { await closeEditor(); await invoke(window.coze.clearAccountData(id)); } catch { /* invoke displays the error. */ }
+});
+$('delete-account').addEventListener('click', async () => {
+  const id = editing; if (!id) return;
+  try { await closeEditor(); await invoke(window.coze.deleteAccount(id)); } catch { /* invoke displays the error. */ }
 });
 $('pause').addEventListener('click', () => invoke(window.coze.pause(state.selected)).catch(() => {}));
 $('resume').addEventListener('click', () => invoke(window.coze.select(state.selected)).catch(() => {}));

@@ -14,10 +14,12 @@ async function until(fn, label) {
 async function ready(wc) { await until(() => !wc.isLoading() && wc.getURL().startsWith('http:'), 'local page load'); }
 async function probe(wc) { return wc.executeJavaScript('({cookie:document.cookie,stored:localStorage.getItem("identity"),node:typeof require,bridge:typeof window.coze})'); }
 exports.run = async ctx => {
+  if (process.argv.includes('--platform-acceptance')) return require('./platform-acceptance-test.cjs').run(ctx);
+  if (process.argv.includes('--delete-acceptance')) return require('./delete-acceptance-test.cjs').run(ctx);
   // Optional synthetic suites share the same --self-test entry point as the regression below.
   if (process.argv.includes('--mock-acceptance')) return require('./mock-acceptance-test.cjs').run(ctx);
   if (process.argv.includes('--memory-check')) return require('./memory-test.cjs').run(ctx);
-  const { win, browser, store, root } = ctx;
+  const { app, win, browser, store, root } = ctx;
   assert.equal(await win.webContents.executeJavaScript('document.querySelector("footer span:last-child").textContent'), 'Chromium · ' + require('../package.json').version);
   const cli = async (...args) => {
     const env={...process.env,ELECTRON_RUN_AS_NODE:'1'};
@@ -39,14 +41,19 @@ exports.run = async ctx => {
       // Stub HTTPS before restoration; no real Coze authentication or page fetch.
       const restored = browser.entry(plan.resumeAccount);
       await restored.session.protocol.handle('https', () => new Response('<!doctype html><title>Restored synthetic page</title><p>Anonymous restart fixture</p>', { headers: { 'Content-Type': 'text/html' } }));
-      browser.restoreSelection();
-      assert.equal(browser.selected, plan.resumeAccount); assert.equal(browser.entries.size, 1);
+      const hidden = store.add('合成隐藏账号');
+      store.toggleArchive(hidden.id);
+      browser.openStartupAccounts();
+      assert.equal(browser.selected, plan.resumeAccount);
+      assert.equal(browser.entries.size, 6);
+      assert.equal(browser.entries.has(hidden.id), false);
+      assert.ok([...browser.entries.values()].every(entry => entry.tabs.length === 1));
       await until(() => !browser.activeTab().view.webContents.isLoading() && browser.activeTab().view.webContents.getURL() === plan.resumeURL, 'restored HTTPS fixture');
       assert.equal(browser.activeTab().view.webContents.getURL(), plan.resumeURL);
       assert.equal(BrowserWindow.getAllWindows().length, 1);
       assert.equal(win.contentView.children.filter(view => view.getVisible()).length, 1);
       assert.equal(fs.readFileSync(store.uiFile, 'utf8').includes('view=synthetic'), false);
-      console.log('PASS restart restores last account and safe page path without queries or reopening background accounts');
+      console.log('PASS restart opens each visible account once and restores the last selected safe path');
       await browser.activeTab().view.webContents.loadURL(browser.home);
       browser.openAll(); assert.equal(store.accounts.filter(a => !a.archived).length, 6);
       assert.equal(store.sidebarCollapsed, true); assert.equal(browser.attached.getBounds().x, COMPACT_LEFT);
@@ -56,6 +63,16 @@ exports.run = async ctx => {
         const data = await probe(wc); assert.equal(data.cookie, `identity=synthetic-${index}`); assert.equal(data.stored, `synthetic-${index}`);
       }
       assert.equal(BrowserWindow.getAllWindows().length, 1); console.log('PASS six isolated sessions survive full application restart');
+      const contentsIDs = () => [...browser.entries.values()].map(entry => entry.tabs[0].view.webContents.id);
+      const beforeMinimize = contentsIDs();
+      win.close();
+      await until(() => win.isMinimized(), 'close button minimizes');
+      assert.equal((await cli('status')).selected, plan.resumeAccount);
+      app.emit('activate');
+      await until(() => !win.isMinimized() && win.isVisible(), 'Dock activation restores');
+      assert.deepEqual(contentsIDs(), beforeMinimize);
+      assert.equal(browser.selected, plan.resumeAccount);
+      console.log('PASS native close minimizes and Dock activation restores the same running pages');
       for (const [index, a] of store.accounts.filter(a => !a.archived).entries()) {
         assert.equal(a.profile.name, `测试昵称 ${index + 1}`); assert.ok(a.profile.avatar.startsWith('data:image/png;base64,'));
       }

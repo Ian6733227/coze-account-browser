@@ -12,6 +12,7 @@ const { coalesceUpdates } = require('./updates.cjs');
 const { requireCurrent } = require('./actions.cjs');
 const { checkedVersion } = require('./compatibility.cjs');
 const { request } = require('./control-transport.cjs');
+const { platforms } = require('./platforms.cjs');
 const { deadline } = require('./closing.cjs');
 const testing = process.argv.includes('--self-test');
 const rootIndex = process.argv.indexOf('--data-root');
@@ -31,7 +32,14 @@ if (!app.requestSingleInstanceLock()) {
 }
 else {
   let win, browser, control, quitting = false, quitInProgress = false;
-  app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
+  function showWindow() {
+    if (!win || win.isDestroyed() || quitInProgress) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+  app.on('second-instance', showWindow);
+  app.on('activate', showWindow);
   app.whenReady().then(async () => {
     // HTTP User-Agent is a byte header; the Chinese app display name must not
     // leak into it (session.fetch/custom protocol headers reject non-ASCII).
@@ -43,6 +51,11 @@ else {
     win = new BrowserWindow({ width: 1280, height: 840, minWidth: 960, minHeight: 650,
       title: '扣子账号浏览器', titleBarStyle: 'hiddenInset', backgroundColor: '#f6f7fb',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+    win.on('close', event => {
+      if (quitting) return;
+      event.preventDefault();
+      if (!quitInProgress) win.minimize();
+    });
     browser = new AccountBrowser(win, store);
     const warningFile = path.join(root, 'shutdown-warning.json');
     if (fs.existsSync(warningFile)) browser.startupWarning = '上次退出时保存未确认，请检查各账号网页；登录资料目录未清除。';
@@ -56,15 +69,28 @@ else {
     const handle = (name, fn) => ipcMain.handle(`coze:${name}`, async (event, payload) => {
       if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== shellURL) throw new Error('不允许访问。');
       try {
-        if (browser.overlay && ['select','open-all','sidebar','archive','pause','clear-account-data','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
+        if (quitInProgress) throw new Error('浏览器正在退出。');
+        if (browser.overlay && ['platform-menu','account-menu','select','open-all','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
         return { ok: true, value: await fn(payload) };
       } catch (err) { notify.flush(); return { ok: false, error: err.message || '操作未完成。' }; }
     });
     handle('state', () => browser.state());
     handle('sidebar', value => browser.setSidebarCollapsed(value));
     handle('select', id => { store.get(id); browser.select(id); return browser.state(); });
-    handle('open-all', () => browser.openAll());
-    handle('add', data => { const a = store.add(data?.name, data?.note, data?.useProfileName); browser.select(a.id); });
+    handle('open-all', () => browser.openAll(store.platformView));
+    handle('platform-menu', () => {
+      const options = [['all', '全部平台'], ...Object.entries(platforms).map(([id, platform]) => [id, platform.label])];
+      const menu = Menu.buildFromTemplate(options.map(([id, label]) => ({
+        label, type: 'radio', checked: store.platformView === id,
+        click: () => {
+          if (browser.overlay || quitInProgress) return;
+          try { browser.setPlatformView(id); }
+          catch (error) { dialog.showErrorBox('切换平台失败', error.message); }
+        }
+      })));
+      menu.popup({ window: win });
+    });
+    handle('add', data => { const a = store.add(data?.name, data?.note, data?.useProfileName, data?.platform); browser.select(a.id); });
     handle('edit', data => { store.edit(data?.id, data?.name, data?.note, data?.useProfileName, data?.avatarMode, data?.customAvatar); browser.onUpdate(); });
     handle('sync-profile', async id => { requireCurrent(browser, id); await browser.syncProfile(id, true); });
     handle('choose-avatar', async id => {
@@ -97,6 +123,50 @@ else {
         if (result.response === 1) { requireCurrent(browser, id); await browser.clearAccountData(id); }
       } finally { browser.setOverlay(false); }
     });
+    async function confirmDeleteAccount(id) {
+      store.get(id);
+      browser.assertAvailable(browser.entries.get(id));
+      const account = browser.state().accounts.find(a => a.id === id);
+      const number = store.accounts.findIndex(a => a.id === id) + 1;
+      browser.setOverlay(true);
+      try {
+        const result = await dialog.showMessageBox(win, { type: 'warning', message: `删除「${account.displayName}」账号入口？`,
+          detail: `账号编号 ${number}。会关闭该入口的全部网页，清除它在本机的网站登录和网站数据，并从账号列表移除。以后添加需要重新登录。不会注销扣子网站账号，也不影响其他入口、已下载文件或云端内容。未保存内容可能丢失，此操作不可撤销。`,
+          buttons: ['取消', '删除账号并清除登录资料'], defaultId: 0, cancelId: 0, noLink: true });
+        if (result.response === 1) await browser.deleteAccount(id);
+      } finally { browser.setOverlay(false); }
+    }
+    handle('delete-account', id => {
+      requireCurrent(browser, id);
+      return confirmDeleteAccount(id);
+    });
+    let accountMenuOpen = false;
+    handle('account-menu', async ({ id, x, y, showArchived } = {}) => {
+      if (accountMenuOpen) return;
+      store.get(id);
+      browser.assertAvailable(browser.entries.get(id));
+      const neighbors = store.sidebarNeighbors(id, showArchived === true, browser.selected);
+      const [width, height] = win.getContentSize();
+      const coordinate = (value, max) => Number.isFinite(value) ? Math.max(0, Math.min(max - 1, Math.round(value))) : 0;
+      accountMenuOpen = true;
+      let action;
+      try {
+        action = await new Promise(resolve => {
+          const menu = Menu.buildFromTemplate([
+            { label: '上移一位', enabled: Boolean(neighbors.up), click: () => resolve('up') },
+            { label: '下移一位', enabled: Boolean(neighbors.down), click: () => resolve('down') },
+            { type: 'separator' },
+            { label: '删除账号…', click: () => resolve('delete') }
+          ]);
+          menu.popup({ window: win, x: coordinate(x, width), y: coordinate(y, height),
+            callback: () => setImmediate(resolve) });
+        });
+      } finally { accountMenuOpen = false; }
+      if (!action || quitInProgress || browser.overlay) return;
+      if (action === 'delete') return confirmDeleteAccount(id);
+      store.moveSidebarAccount(id, action, showArchived === true, browser.selected);
+      browser.onUpdate(true);
+    });
     handle('navigation', action => { if (!['back','forward','reload','home','zoom-in','zoom-out','zoom-reset'].includes(action)) throw new Error('无效操作。'); browser.navigate(action); });
     handle('tab', id => browser.switchTab(id));
     handle('close-tab', () => browser.closeTab());
@@ -106,7 +176,7 @@ else {
       { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: '网页', submenu: [{ label: '后退', accelerator: 'CmdOrCtrl+[', click: () => browser.navigate('back') },
         { label: '前进', accelerator: 'CmdOrCtrl+]', click: () => browser.navigate('forward') },
-        { label: '扣子首页', click: () => browser.navigate('home') },
+        { label: '当前平台首页', click: () => browser.navigate('home') },
         { label: '刷新当前网页', accelerator: 'CmdOrCtrl+R', click: () => browser.navigate('reload') },
         { label: '放大', accelerator: 'CmdOrCtrl+=', click: () => browser.navigate('zoom-in') }, { label: '缩小', accelerator: 'CmdOrCtrl+-', click: () => browser.navigate('zoom-out') },
         { label: '原始大小', accelerator: 'CmdOrCtrl+0', click: () => browser.navigate('zoom-reset') }, { role: 'togglefullscreen', label: '全屏' }] },
@@ -115,13 +185,12 @@ else {
         click: () => { if (!browser.overlay) win.webContents.send('coze:show-help'); } }] }
     ]));
     await win.loadURL(shellURL);
-    if (!testing) browser.restoreSelection();
+    if (!testing) browser.openStartupAccounts();
     if (!process.argv.includes('--no-control')) control = await startControl({browser,store,win,version:app.getVersion(),isBusy:() => quitInProgress});
     if (testing) {
       try { await require(process.argv.includes('--background-check') ? '../test/background-test.cjs' : '../test/browser-test.cjs').run({ app, win, browser, store, root }); await control?.close(); await browser.dispose(); app.exit(0); }
       catch (err) { console.error('BROWSER_TEST_FAILED', err?.stack || String(err)); await control?.close(); await browser.dispose(); app.exit(1); }
     } else {
-      win.on('close', event => { if (!quitting) { event.preventDefault(); app.quit(); } });
       app.on('before-quit', event => {
         if (quitting) return;
         event.preventDefault(); if (quitInProgress) return; quitInProgress = true;
@@ -137,7 +206,6 @@ else {
           fs.rmSync(warningFile, { force: true }); quitting = true; app.quit();
         })().catch(() => { console.error('COZE_SHUTDOWN_UNCONFIRMED'); app.exit(1); });
       });
-      app.on('activate', () => { if (win && !win.isDestroyed()) { win.show(); win.focus(); } });
     }
   }).catch(err => { dialog.showErrorBox('启动失败', err.message); app.exit(1); });
 }

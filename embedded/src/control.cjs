@@ -1,8 +1,20 @@
 'use strict';
+const { platforms } = require('./platforms.cjs');
 const { createServer } = require('./control-transport.cjs');
 const HOSTS = new Set(['coze.cn','www.coze.cn','space.coze.cn']);
 const COMMANDS = new Set(['status','accounts','switch','open','open-all','sidebar']);
 function fail(code,message) { throw Object.assign(new Error(message),{code}); }
+function accountPageURL(value, platform = 'coze') {
+  if (platform === 'coze') return pageURL(value);
+  if (typeof value !== 'string' || value.length > 4096 || !Object.hasOwn(platforms, platform)) fail('INVALID_URL','请使用该平台登记的首页链接。');
+  const home = new URL(platforms[platform].home);
+  let url;
+  try { url = new URL(value); } catch { fail('INVALID_URL','链接格式不正确。'); }
+  const path = url.pathname.replace(/\/$/, '') || '/';
+  const homePath = home.pathname.replace(/\/$/, '') || '/';
+  if (url.origin !== home.origin || url.username || url.password || url.search || url.hash || path !== homePath) fail('INVALID_URL','请使用该平台登记的首页链接。');
+  return url.href;
+}
 function pageURL(value) {
   if (typeof value !== 'string' || value.length > 4096) fail('INVALID_URL','请提供扣子的HTTPS页面链接。');
   let url; try { url = new URL(value); } catch { fail('INVALID_URL','链接格式不正确。'); }
@@ -33,10 +45,11 @@ function resolveAccount(store, selector, fallback) {
 }
 function snapshot(browser,store,version) {
   const state = browser.state();
+  const current = store.accounts.find(account => account.id === browser.selected);
   return { protocolVersion:1,version,selected:state.selected,sidebarCollapsed:state.sidebarCollapsed,
-    accounts:state.accounts.map((a,index) => ({number:index+1,id:a.id,name:a.displayName,archived:a.archived,selected:a.id===state.selected,running:a.running,paused:a.paused === true,loading:a.loading,crashed:a.crashed,error:a.pageError || null})),
+    accounts:state.accounts.map((a,index) => ({number:index+1,id:a.id,platform:a.platform || 'coze',name:a.displayName,archived:a.archived,selected:a.id===state.selected,running:a.running,paused:a.paused === true,loading:a.loading,crashed:a.crashed,error:a.pageError || null})),
     pages:[...(browser.entries.get(browser.selected)?.tabs || [])].map(tab => {
-      let location = null; try { const url = new URL(pageURL(tab.view.webContents.getURL())); location = url.origin+url.pathname; } catch {}
+      let location = null; try { const url = new URL(accountPageURL(tab.view.webContents.getURL(), current?.platform)); location = url.origin+url.pathname; } catch {}
       return {id:tab.id,primary:tab.primary,active:tab.id===browser.entries.get(browser.selected)?.active,location,loading:tab.view.webContents.isLoading(),crashed:tab.crashed,error:tab.error || null};
     }) };
 }
@@ -50,7 +63,8 @@ function dispatcher({browser,store,win,version,isBusy = () => false}) {
     if (request.command === 'accounts') return {protocolVersion:1,accounts:snapshot(browser,store,version).accounts};
     if (request.command === 'switch') browser.select(resolveAccount(store,request.account).id);
     if (request.command === 'open') {
-      const url = pageURL(request.url), account = resolveAccount(store,request.account,browser.selected);
+      const account = resolveAccount(store,request.account,browser.selected);
+      const url = accountPageURL(request.url, account.platform);
       const result = browser.openPage(account.id,url);
       if (win.isMinimized()) win.restore(); win.show(); win.focus();
       return {effect:result.created ? 'navigation_started' : 'existing_page_selected',accountId:account.id,pageId:result.tab.id,state:snapshot(browser,store,version)};
@@ -65,4 +79,4 @@ function dispatcher({browser,store,win,version,isBusy = () => false}) {
   };
 }
 async function startControl(options) { return createServer(options.store.root,dispatcher(options)); }
-module.exports = { pageURL, resolveAccount, snapshot, dispatcher, startControl };
+module.exports = { pageURL, accountPageURL, resolveAccount, snapshot, dispatcher, startControl };

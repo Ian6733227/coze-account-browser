@@ -71,7 +71,7 @@ test('editor preserves custom avatar data and restores the synced avatar across 
 });
 test('adding an account without any avatar opens the editor with a fallback', async () => {
   const {ids,context}=fixture();await vm.runInContext('editor()',context);
-  assert.equal(ids.get('avatar-preview').textContent,'头像');assert.equal(ids.get('editor').open,true);
+  assert.equal(ids.get('avatar-preview').firstChild.src,'platform-icons/coze.png');assert.equal(ids.get('editor').open,true);
   assert.equal(ids.get('account-name').value,'扣子账号 6');
 });
 test('a failed current page has clear recovery actions; background errors do not cover a healthy page', () => {
@@ -79,4 +79,25 @@ test('a failed current page has clear recovery actions; background errors do not
   assert.equal(document.querySelector('.empty').style.display,'flex');assert.equal(ids.get('recover-reload').hidden,false);assert.equal(ids.get('recover-home').hidden,false);assert.equal(ids.get('resume').hidden,true);
   state.accounts[0].crashed=false;state.accounts[0].pageError='';state.accounts[0].backgroundError=true;render(state);
   assert.equal(document.querySelector('.empty').style.display,'none');assert.equal(ids.get('recover-reload').hidden,true);
+});
+
+
+test('accounts use the matching local platform icon until a personal image is available', () => {
+  const {state,render,ids}=fixture();
+  state.platforms={ coze:{label:'扣子'}, doubao:{label:'豆包'} };
+  state.accounts[1].platform='doubao';
+  render(state);
+  const row=ids.get('accounts').children[1];
+  const avatar=row.children.find(x=>x.className==='avatar');
+  const badge=row.children.find(x=>x.className==='account-number');
+  assert.equal(avatar.firstChild.src,'platform-icons/doubao.png');
+  assert.equal(badge.hidden,false);
+  state.accounts[1].displayAvatar='data:image/png;base64,personal';
+  render(state);
+  assert.equal(badge.hidden,true);
+  assert.equal(avatar.firstChild.src,state.accounts[1].displayAvatar);
+  avatar.firstChild.emit('error');
+  assert.equal(avatar.firstChild.src,'platform-icons/doubao.png');
+  render(state);
+  assert.equal(badge.hidden,false);
 });

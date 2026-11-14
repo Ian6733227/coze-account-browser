@@ -172,7 +172,10 @@ exports.run = async ctx => {
     browser.onUpdate();
     await until(async () => await win.webContents.executeJavaScript(`document.activeElement.dataset.accountId === ${JSON.stringify(store.accounts[2].id)}`), 'account keyboard focus survives update');
     assert.equal(await win.webContents.executeJavaScript(`document.querySelectorAll('#accounts .account-number').length`), 6);
-    console.log('PASS default avatar numbers and focus retained');
+    await until(() => win.webContents.executeJavaScript(`[...document.querySelectorAll('#accounts .avatar img')].length === 6 &&
+      [...document.querySelectorAll('#accounts .avatar img')].every(img =>
+        img.getAttribute('src') === 'platform-icons/coze.png' && img.complete && img.naturalWidth > 0)`), 'local default platform icons decode');
+    console.log('PASS default platform icons, avatar numbers and focus retained');
     // Help lives in the same native window and restores the existing account renderer.
     const helpAccount = browser.selected, helpRenderer = browser.attached.webContents.id;
     await win.webContents.executeJavaScript(`document.querySelector('#help').click()`);

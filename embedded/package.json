@@ -1,6 +1,6 @@
 {
   "name": "coze-account-browser",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "Single-window Chromium browser for independent Coze accounts",
   "private": true,
   "main": "src/main.cjs",

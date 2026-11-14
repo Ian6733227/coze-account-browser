@@ -14,19 +14,32 @@ async function invoke(promise) {
 function platformLabel(id) { return state.platforms?.[id]?.label || '扣子'; }
 function matchesView(account) { return !state.platformView || state.platformView === 'all' || (account.platform || 'coze') === state.platformView; }
 function selected() { return state.accounts.find(a => a.id === state.selected); }
-function fillAvatar(element, value, fallback) {
-  const prior = avatars.get(element);
-  if (prior && prior.value === value && prior.fallback === fallback) return;
-  avatars.set(element, {value, fallback});
-  element.replaceChildren();
-  if (value) { const img = document.createElement('img'); img.src = value; img.alt = ''; img.addEventListener('error', () => { if (element.firstChild === img) element.textContent = fallback; }, {once:true}); element.append(img); }
-  else element.textContent = fallback;
+function platformIcon(id, fallback = 'coze') {
+  const supported = Object.hasOwn(state.platforms || {}, id);
+  return 'platform-icons/' + (supported ? id : fallback) + '.png';
 }
-function initials(name) { return /^[a-z0-9]/i.test(name) ? Array.from(name).slice(0,2).join('').toUpperCase() : Array.from(name)[0] || '号'; }
-function avatarColor(id) {
-  const colors = ['#505fc7','#187867','#a44868','#8b5b26','#6852a3','#276fa0'];
-  let hash = 0; for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return colors[hash % colors.length];
+function fillAvatar(element, value, platform, badge, showNumber = false) {
+  const fallback = platformIcon(platform);
+  const prior = avatars.get(element);
+  if (badge) badge.hidden = Boolean(value) && !showNumber && !prior?.failed;
+  if (prior && prior.value === value && prior.fallback === fallback) return;
+  const image = document.createElement('img');
+  const current = {value, fallback, failed: false};
+  avatars.set(element, current);
+  image.alt = '';
+  image.src = value || fallback;
+  if (value) image.addEventListener('error', () => {
+    if (avatars.get(element) !== current) return;
+    current.failed = true;
+    image.src = fallback;
+    if (badge) badge.hidden = false;
+  }, {once:true});
+  if (badge) badge.hidden = Boolean(value) && !showNumber;
+  element.replaceChildren(image);
+}
+function previewAvatar(account) {
+  const value = avatarMode === 'custom' ? customAvatar : account?.syncedAvatar ?? account?.profile.avatar;
+  fillAvatar($('avatar-preview'), value, account?.platform || $('account-platform').value);
 }
 function pageStatus(account, current) {
   return account.clearing ? '正在清除登录资料…' : account.pausing ? '正在关闭网页…' : account.crashed ? '网页已退出 · 请刷新' : account.pageError ? '加载失败 · 请刷新' : account.loading ? '加载中' :
@@ -82,7 +95,7 @@ function render(value) {
   const viewName = state.platformView && state.platformView !== 'all' ? platformLabel(state.platformView) : '全部平台';
   const icon = $('platform-icon');
   const platform = state.platformView;
-  const iconPath = 'platform-icons/' + (platform && Object.hasOwn(state.platforms || {}, platform) ? platform : 'all') + '.png';
+  const iconPath = platformIcon(platform, 'all');
   if (icon.getAttribute('src') !== iconPath) icon.setAttribute('src', iconPath);
   $('platform-name').textContent = viewName;
   $('platform-switch').title = '切换平台 · ' + viewName;
@@ -108,7 +121,7 @@ function render(value) {
     if (!row) {
       const button = document.createElement('button'), avatar = document.createElement('span'), badge = document.createElement('span');
       const details = document.createElement('span'), name = document.createElement('span'), status = document.createElement('span'), dot = document.createElement('span');
-      button.dataset.accountId = a.id; avatar.className = 'avatar'; avatar.style.setProperty('--avatar-color', avatarColor(a.id));
+      button.dataset.accountId = a.id; avatar.className = 'avatar';
       badge.className = 'account-number'; badge.setAttribute('aria-hidden', 'true'); details.className = 'account-details';
       name.className = 'account-name'; status.className = 'account-state'; details.append(name, status); button.append(badge, avatar, details, dot);
       button.setAttribute('aria-haspopup', 'menu'); bindAccountRow(button, a.id);
@@ -118,8 +131,7 @@ function render(value) {
     button.className = `account${a.id === state.selected ? ' active' : ''}`;
     button.disabled = a.pausing === true;
     button.setAttribute('aria-current', a.id === state.selected ? 'true' : 'false');
-    fillAvatar(avatar, a.displayAvatar, initials(a.displayName));
-    badge.hidden = Boolean(a.displayAvatar) && nameCounts.get(a.displayName) < 2;
+    fillAvatar(avatar, a.displayAvatar, a.platform, badge, nameCounts.get(a.displayName) > 1);
     badge.textContent = String(index + 1); name.textContent = a.displayName;
     status.textContent = pageStatus(a, a.id === state.selected);
     if (showPlatformLabels) {
@@ -181,7 +193,7 @@ function render(value) {
   reconcile($('tabs'), buttons);
   if (editing) {
     const a = state.accounts.find(a => a.id === editing);
-    fillAvatar($('avatar-preview'), avatarMode === 'custom' ? customAvatar : a?.profile.avatar, '头像');
+    previewAvatar(a);
     $('restore-avatar').disabled = avatarMode !== 'custom';
   }
 }
@@ -203,7 +215,7 @@ async function editor(id = null) {
   $('avatar-editor').hidden = !id; $('clear-account-data').hidden = !id; $('clear-account-data').disabled = account?.pausing === true;
   $('delete-account').hidden = !id; $('delete-account').disabled = account?.pausing === true;
   avatarMode = account?.avatarMode || 'sync'; customAvatar = account?.customAvatar || '';
-  fillAvatar($('avatar-preview'), account?.displayAvatar, '头像');
+  previewAvatar(account);
   $('restore-avatar').disabled = account?.avatarMode !== 'custom';
   await invoke(window.coze.overlay(true)); $('editor').showModal(); $('account-name').focus(); $('account-name').select();
 }
@@ -266,10 +278,10 @@ $('recover-home').addEventListener('click', () => invoke(window.coze.navigation(
 $('choose-avatar').addEventListener('click', async () => {
   if (!editing) return;
   try { const value = await invoke(window.coze.chooseAvatar(editing));
-    if (value) { avatarMode = 'custom'; customAvatar = value; fillAvatar($('avatar-preview'), value, '头像'); $('restore-avatar').disabled = false; }
+    if (value) { avatarMode = 'custom'; customAvatar = value; previewAvatar(state.accounts.find(a => a.id === editing)); $('restore-avatar').disabled = false; }
   } catch (err) { $('form-error').textContent = err.message; }
 });
 $('restore-avatar').addEventListener('click', () => {
-  avatarMode = 'sync'; fillAvatar($('avatar-preview'), state.accounts.find(a => a.id === editing)?.profile.avatar, '头像'); $('restore-avatar').disabled = true;
+  avatarMode = 'sync'; previewAvatar(state.accounts.find(a => a.id === editing)); $('restore-avatar').disabled = true;
 });
 window.coze.onState(render); invoke(window.coze.state()).then(render).catch(() => {});

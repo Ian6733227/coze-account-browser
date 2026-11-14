@@ -334,8 +334,9 @@ class AccountBrowser {
   state() {
     return { selected: this.selected, sidebarCollapsed: this.store.sidebarCollapsed, sidebarOrder: this.store.sidebarOrder, platformView: this.store.platformView, platforms, accounts: this.store.accounts.map(a => {
       const entry = this.entries.get(a.id), tabs = entry?.tabs || [];
-      return { ...a, platform: a.platform || 'coze', displayName: a.useProfileName && a.profile.name ? a.profile.name : a.name,
-        displayAvatar: a.avatarMode === 'custom' ? a.customAvatar : isDefaultAvatar(a.profile.avatar) ? '' : a.profile.avatar,
+      const syncedAvatar = isDefaultAvatar(a.profile.avatar) ? '' : a.profile.avatar;
+      return { ...a, syncedAvatar, platform: a.platform || 'coze', displayName: a.useProfileName && a.profile.name ? a.profile.name : a.name,
+        displayAvatar: a.avatarMode === 'custom' ? a.customAvatar : syncedAvatar,
         identityStatus: this.profileChecks.get(a.id)?.confirmedAt ? 'confirmed' : 'unconfirmed', identityCheckedAt: this.profileChecks.get(a.id)?.confirmedAt || null,
         syncing: this.profileChecks.get(a.id)?.busy === true, running: tabs.length > 0, clearing: Boolean(entry?.clearing), pausing: Boolean(entry?.closing || entry?.flushing || entry?.clearing), paused: entry?.paused === true && tabs.length === 0, loading: tabs.some(t => t.view.webContents.isLoading()),
         crashed: tabs.find(t => t.id === entry.active)?.crashed === true, pageError: tabs.find(t => t.id === entry.active)?.error || '', backgroundError: tabs.some(t => t.id !== entry.active && (t.crashed || t.error)) };

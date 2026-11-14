@@ -284,7 +284,7 @@ class AccountBrowser {
     this.display(); this.onUpdate(true);
   }
   state() {
-    return { selected: this.selected, sidebarCollapsed: this.store.sidebarCollapsed, accounts: this.store.accounts.map(a => {
+    return { selected: this.selected, sidebarCollapsed: this.store.sidebarCollapsed, sidebarOrder: this.store.sidebarOrder, accounts: this.store.accounts.map(a => {
       const entry = this.entries.get(a.id), tabs = entry?.tabs || [];
       return { ...a, displayName: a.useProfileName && a.profile.name ? a.profile.name : a.name,
         displayAvatar: a.avatarMode === 'custom' ? a.customAvatar : isDefaultAvatar(a.profile.avatar) ? '' : a.profile.avatar,

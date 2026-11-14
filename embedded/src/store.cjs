@@ -42,6 +42,8 @@ class Store {
       this.accounts = legacy || Array.from({ length: 5 }, (_, i) => ({ id: randomUUID(), name: `扣子账号 ${i + 1}`, note: '', archived: false }));
       this.save(this.accounts);
     }
+    const ids = new Set(this.accounts.map(a => a.id));
+    this.sidebarOrder = Array.isArray(ui.sidebarOrder) ? [...new Set(ui.sidebarOrder.filter(id => ids.has(id)))] : [];
     const resume = ui.resume;
     this.resume = resume && this.accounts.some(a => a.id === resume.accountId) ?
       { accountId: resume.accountId, url: safeResumeURL(resume.url) } : null;
@@ -60,8 +62,29 @@ class Store {
     if (typeof value !== 'boolean') throw new Error('侧栏设置不正确。');
     this.writeUI(value, this.resume); this.sidebarCollapsed = value;
   }
-  writeUI(sidebarCollapsed, resume) {
-    atomicWrite(this.uiFile, JSON.stringify({ sidebarCollapsed, resume }) + '\n');
+  writeUI(sidebarCollapsed, resume, sidebarOrder = this.sidebarOrder) {
+    atomicWrite(this.uiFile, JSON.stringify({ sidebarCollapsed, resume, sidebarOrder }) + '\n');
+  }
+  orderedAccounts() {
+    const accounts = new Map(this.accounts.map(account => [account.id, account]));
+    const order = new Set([...this.sidebarOrder, ...accounts.keys()]);
+    return [...order].filter(id => accounts.has(id)).map(id => accounts.get(id));
+  }
+  sidebarNeighbors(id, showArchived, selected) {
+    const visible = this.orderedAccounts().filter(a => !a.archived || showArchived || a.id === selected);
+    const index = visible.findIndex(a => a.id === id);
+    return index < 0 ? {} : { up: visible[index - 1]?.id, down: visible[index + 1]?.id };
+  }
+  moveSidebarAccount(id, direction, showArchived, selected) {
+    this.get(id);
+    if (direction !== 'up' && direction !== 'down') throw new Error('移动方向不正确。');
+    const neighbor = this.sidebarNeighbors(id, showArchived, selected)[direction];
+    if (!neighbor) return;
+    const order = this.orderedAccounts().map(a => a.id);
+    const from = order.indexOf(id), to = order.indexOf(neighbor);
+    [order[from], order[to]] = [order[to], order[from]];
+    this.writeUI(this.sidebarCollapsed, this.resume, order);
+    this.sidebarOrder = order;
   }
   setResume(accountId, url) {
     this.get(accountId);
@@ -98,6 +121,7 @@ class Store {
     // An old UI resume reference is ignored at startup if its ID no longer
     // exists. Do not introduce a second fallible write after list commit.
     if (this.resume?.accountId === id) this.resume = null;
+    this.sidebarOrder = this.sidebarOrder.filter(orderedId => orderedId !== id);
   }
   clearProfile(id) {
     this.get(id);

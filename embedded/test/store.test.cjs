@@ -117,3 +117,30 @@ test('unsafe URLs never persist; archived, missing and malformed startup state f
   for (const account of store.accounts.filter(a => !a.archived)) store.toggleArchive(account.id);
   assert.equal(new Store(root).startupSelection(), null);
 });
+
+test('sidebar moves persist across restart and preserve hidden positions, IDs and shortcuts', t => {
+  const root = temporary(t), store = new Store(root);
+  const ids = store.accounts.map(account => account.id);
+  const originalPath = store.sessionPath(ids[2]);
+  store.toggleArchive(ids[1]);
+  const before = fs.readFileSync(store.file, 'utf8');
+  store.moveSidebarAccount(ids[2], 'up', false, ids[0]);
+  assert.deepEqual(store.orderedAccounts().map(a => a.id), [ids[2], ids[1], ids[0], ids[3], ids[4]]);
+  assert.equal(fs.readFileSync(store.file, 'utf8'), before);
+  const reopened = new Store(root);
+  assert.deepEqual(reopened.accounts.map(a => a.id), ids);
+  assert.equal(reopened.sessionPath(ids[2]), originalPath);
+  assert.deepEqual(reopened.sidebarNeighbors(ids[2], true, ids[0]), { up: undefined, down: ids[1] });
+  assert.deepEqual(reopened.sidebarNeighbors(ids[2], false, ids[0]), { up: undefined, down: ids[0] });
+  const order = [...reopened.sidebarOrder];
+  reopened.moveSidebarAccount(ids[2], 'up', false, ids[0]);
+  assert.deepEqual(reopened.sidebarOrder, order);
+  assert.throws(() => reopened.moveSidebarAccount(ids[2], 'constructor', false, ids[0]), /方向/);
+  reopened.writeUI = () => { throw new Error('write failed'); };
+  assert.throws(() => reopened.moveSidebarAccount(ids[2], 'down', false, ids[0]), /write failed/);
+  assert.deepEqual(reopened.sidebarOrder, order);
+  reopened.remove(ids[2]);
+  assert.equal(new Store(root).sidebarOrder.includes(ids[2]), false);
+  const added = reopened.add('新账号');
+  assert.equal(reopened.orderedAccounts().at(-1).id, added.id);
+});

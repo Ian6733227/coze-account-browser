@@ -30,6 +30,47 @@ function pageStatus(account, current) {
   return account.clearing ? '正在清除登录资料…' : account.pausing ? '正在关闭网页…' : account.crashed ? '网页已退出 · 请刷新' : account.pageError ? '加载失败 · 请刷新' : account.loading ? '加载中' :
     account.running ? (current ? '当前网页' : '后台运行') + (account.identityStatus === 'unconfirmed' ? ' · 昵称待确认' : '') : account.paused ? '网页已关闭' : '网页未打开';
 }
+function bindAccountRow(button, id) {
+  let press = null, suppressClick = false, menuOpen = false;
+  function cancelPress() {
+    if (press) clearTimeout(press.timer);
+    press = null;
+  }
+  async function openMenu(event) {
+    event.preventDefault();
+    cancelPress();
+    if (menuOpen || button.disabled || !button.isConnected) return;
+    menuOpen = true;
+    const bounds = button.getBoundingClientRect();
+    try {
+      await invoke(window.coze.accountMenu(id, event.clientX || bounds.left + 12,
+        event.clientY || bounds.bottom, $('archived').checked));
+    } catch { /* invoke displays the error. */ }
+    finally { menuOpen = false; }
+  }
+  button.addEventListener('click', event => {
+    if (suppressClick && event.detail) return;
+    if (!(event.detail >= 2)) invoke(window.coze.select(id)).catch(() => {});
+  });
+  button.addEventListener('contextmenu', openMenu);
+  button.addEventListener('dblclick', openMenu);
+  button.addEventListener('keydown', event => {
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
+  });
+  button.addEventListener('pointerdown', event => {
+    cancelPress();
+    if (event.button !== 0 || event.ctrlKey) return;
+    suppressClick = false;
+    press = { x: event.clientX, y: event.clientY, timer: setTimeout(() => {
+      suppressClick = true;
+      openMenu(event);
+    }, 550) };
+  });
+  button.addEventListener('pointermove', event => {
+    if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 8) cancelPress();
+  });
+  for (const name of ['pointerup', 'pointercancel', 'pointerleave']) button.addEventListener(name, cancelPress);
+}
 function render(value) {
   state = value; const current = selected();
   document.body.classList.toggle('sidebar-collapsed', state.sidebarCollapsed === true);
@@ -44,8 +85,13 @@ function render(value) {
   const present = new Set(state.accounts.map(a => a.id));
   for (const id of accountRows.keys()) if (!present.has(id)) accountRows.delete(id);
   const rows = [];
-  state.accounts.forEach((a, index) => {
-    if (a.archived && !$('archived').checked && a.id !== state.selected) return;
+  const accountIndexes = new Map(state.accounts.map((account, index) => [account.id, index]));
+  const order = new Set([...(state.sidebarOrder || []), ...accountIndexes.keys()]);
+  for (const id of order) {
+    const index = accountIndexes.get(id);
+    if (index === undefined) continue;
+    const a = state.accounts[index];
+    if (a.archived && !$('archived').checked && a.id !== state.selected) continue;
     let row = accountRows.get(a.id);
     if (!row) {
       const button = document.createElement('button'), avatar = document.createElement('span'), badge = document.createElement('span');
@@ -53,7 +99,7 @@ function render(value) {
       button.dataset.accountId = a.id; avatar.className = 'avatar'; avatar.style.setProperty('--avatar-color', avatarColor(a.id));
       badge.className = 'account-number'; badge.setAttribute('aria-hidden', 'true'); details.className = 'account-details';
       name.className = 'account-name'; status.className = 'account-state'; details.append(name, status); button.append(badge, avatar, details, dot);
-      button.addEventListener('click', () => invoke(window.coze.select(a.id)).catch(() => {}));
+      button.setAttribute('aria-haspopup', 'menu'); bindAccountRow(button, a.id);
       row = {button, avatar, badge, name, status, dot}; accountRows.set(a.id, row);
     }
     const {button, avatar, badge, name, status, dot} = row;
@@ -69,8 +115,10 @@ function render(value) {
     button.title = `${a.displayName} · 账号 ${index + 1} · ${status.textContent}${a.note ? '\n' + a.note : ''}`;
     button.setAttribute('aria-label', `${a.displayName}，账号 ${index + 1}，${status.textContent}`);
     rows.push(button);
-  });
+  }
+  const focusedRow = document.activeElement;
   reconcile($('accounts'), rows);
+  if (document.activeElement !== focusedRow && rows.includes(focusedRow)) focusedRow.focus({ preventScroll: true });
   $('accounts').scrollTop = accountScroll;
   $('name').textContent = current?.displayName || '扣子账号浏览器';
   $('status').textContent = current ? pageStatus(current, true) : '选择账号开始';

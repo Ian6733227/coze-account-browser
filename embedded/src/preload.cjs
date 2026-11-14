@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('coze', Object.freeze({
   state: () => ipcRenderer.invoke('coze:state'),
   sidebar: collapsed => ipcRenderer.invoke('coze:sidebar', collapsed),
+  accountMenu: (id, x, y, showArchived) => ipcRenderer.invoke('coze:account-menu', { id, x, y, showArchived }),
   select: id => ipcRenderer.invoke('coze:select', id),
   openAll: () => ipcRenderer.invoke('coze:open-all'),
   add: (name, note, useProfileName) => ipcRenderer.invoke('coze:add', { name, note, useProfileName }),

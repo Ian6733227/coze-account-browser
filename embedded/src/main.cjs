@@ -68,7 +68,8 @@ else {
     const handle = (name, fn) => ipcMain.handle(`coze:${name}`, async (event, payload) => {
       if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== shellURL) throw new Error('不允许访问。');
       try {
-        if (browser.overlay && ['select','open-all','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
+        if (quitInProgress) throw new Error('浏览器正在退出。');
+        if (browser.overlay && ['account-menu','select','open-all','sidebar','archive','pause','clear-account-data','delete-account','navigation','tab','close-tab','sync-profile'].includes(name)) throw new Error('请先完成当前确认，或关闭帮助、保存/取消账号编辑。');
         return { ok: true, value: await fn(payload) };
       } catch (err) { notify.flush(); return { ok: false, error: err.message || '操作未完成。' }; }
     });
@@ -109,8 +110,9 @@ else {
         if (result.response === 1) { requireCurrent(browser, id); await browser.clearAccountData(id); }
       } finally { browser.setOverlay(false); }
     });
-    handle('delete-account', async id => {
-      requireCurrent(browser, id); browser.assertAvailable(browser.entries.get(id));
+    async function confirmDeleteAccount(id) {
+      store.get(id);
+      browser.assertAvailable(browser.entries.get(id));
       const account = browser.state().accounts.find(a => a.id === id);
       const number = store.accounts.findIndex(a => a.id === id) + 1;
       browser.setOverlay(true);
@@ -118,8 +120,39 @@ else {
         const result = await dialog.showMessageBox(win, { type: 'warning', message: `删除「${account.displayName}」账号入口？`,
           detail: `账号编号 ${number}。会关闭该入口的全部网页，清除它在本机的网站登录和网站数据，并从账号列表移除。以后添加需要重新登录。不会注销扣子网站账号，也不影响其他入口、已下载文件或云端内容。未保存内容可能丢失，此操作不可撤销。`,
           buttons: ['取消', '删除账号并清除登录资料'], defaultId: 0, cancelId: 0, noLink: true });
-        if (result.response === 1) { requireCurrent(browser, id); await browser.deleteAccount(id); }
+        if (result.response === 1) await browser.deleteAccount(id);
       } finally { browser.setOverlay(false); }
+    }
+    handle('delete-account', id => {
+      requireCurrent(browser, id);
+      return confirmDeleteAccount(id);
+    });
+    let accountMenuOpen = false;
+    handle('account-menu', async ({ id, x, y, showArchived } = {}) => {
+      if (accountMenuOpen) return;
+      store.get(id);
+      browser.assertAvailable(browser.entries.get(id));
+      const neighbors = store.sidebarNeighbors(id, showArchived === true, browser.selected);
+      const [width, height] = win.getContentSize();
+      const coordinate = (value, max) => Number.isFinite(value) ? Math.max(0, Math.min(max - 1, Math.round(value))) : 0;
+      accountMenuOpen = true;
+      let action;
+      try {
+        action = await new Promise(resolve => {
+          const menu = Menu.buildFromTemplate([
+            { label: '上移一位', enabled: Boolean(neighbors.up), click: () => resolve('up') },
+            { label: '下移一位', enabled: Boolean(neighbors.down), click: () => resolve('down') },
+            { type: 'separator' },
+            { label: '删除账号…', click: () => resolve('delete') }
+          ]);
+          menu.popup({ window: win, x: coordinate(x, width), y: coordinate(y, height),
+            callback: () => setImmediate(resolve) });
+        });
+      } finally { accountMenuOpen = false; }
+      if (!action || quitInProgress || browser.overlay) return;
+      if (action === 'delete') return confirmDeleteAccount(id);
+      store.moveSidebarAccount(id, action, showArchived === true, browser.selected);
+      browser.onUpdate(true);
     });
     handle('navigation', action => { if (!['back','forward','reload','home','zoom-in','zoom-out','zoom-reset'].includes(action)) throw new Error('无效操作。'); browser.navigate(action); });
     handle('tab', id => browser.switchTab(id));

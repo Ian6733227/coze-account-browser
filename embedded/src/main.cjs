@@ -24,7 +24,7 @@ const testing = process.argv.includes('--self-test');
 const rootIndex = process.argv.indexOf('--data-root');
 const root = rootIndex >= 0 ? path.resolve(process.argv[rootIndex + 1]) : testing ? fs.mkdtempSync(path.join(os.tmpdir(), 'coze-browser-test-')) :
   path.join(app.getPath('appData'), 'CozeAccountsBrowser');
-app.setName('扣子账号浏览器');
+app.setName('智进化 AI 工作台');
 app.setPath('userData', root);
 if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
@@ -49,13 +49,13 @@ else {
   app.whenReady().then(async () => {
     // HTTP User-Agent is a byte header; the Chinese app display name must not
     // leak into it (session.fetch/custom protocol headers reject non-ASCII).
-    app.userAgentFallback = app.userAgentFallback.replaceAll('扣子账号浏览器', 'CozeAccountsBrowser');
-    app.setAboutPanelOptions({ applicationName: '扣子账号浏览器', applicationVersion: app.getVersion(),
+    app.userAgentFallback = app.userAgentFallback.replace(/智进化[ -]*AI[ -]*工作台|扣子账号浏览器/gi, 'CozeAccountsBrowser').replace(/[^\x20-\x7e]/g, '');
+    app.setAboutPanelOptions({ applicationName: '智进化 AI 工作台', applicationVersion: app.getVersion(),
       iconPath: path.join(__dirname, '../assets/zhijinhua-app.png'),
       copyright: '智进化 · 多账号工作台' });
     const store = new Store(root, testing || rootIndex >= 0 ? null : path.join(app.getPath('appData'), 'CozeAccounts', 'accounts.json'));
     win = new BrowserWindow({ width: 1280, height: 840, minWidth: 960, minHeight: 650,
-      title: '扣子账号浏览器', titleBarStyle: 'hiddenInset', backgroundColor: '#f6f7fb',
+      title: '智进化 AI 工作台', titleBarStyle: 'hiddenInset', backgroundColor: '#f6f7fb',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
     win.on('close', event => {
       if (quitting) return;
@@ -182,7 +182,7 @@ else {
     handle('close-tab', () => browser.closeTab());
     handle('overlay', value => { if (typeof value !== 'boolean') throw new Error('无效操作。'); browser.setOverlay(value); });
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: app.name, submenu: [{ role: 'about', label: '关于扣子账号浏览器' }, { type: 'separator' }, { role: 'hide', label: '隐藏' }, { role: 'quit', label: '退出' }] },
+      { label: app.name, submenu: [{ role: 'about', label: '关于智进化 AI 工作台' }, { type: 'separator' }, { role: 'hide', label: '隐藏' }, { role: 'quit', label: '退出' }] },
       { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: '网页', submenu: [{ label: '后退', accelerator: 'CmdOrCtrl+[', click: () => browser.navigate('back') },
         { label: '前进', accelerator: 'CmdOrCtrl+]', click: () => browser.navigate('forward') },

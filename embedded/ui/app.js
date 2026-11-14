@@ -141,7 +141,7 @@ function render(value) {
   reconcile($('accounts'), rows);
   if (document.activeElement !== focusedRow && rows.includes(focusedRow)) focusedRow.focus({ preventScroll: true });
   $('accounts').scrollTop = accountScroll;
-  $('name').textContent = current?.displayName || '扣子账号浏览器';
+  $('name').textContent = current?.displayName || '智进化 AI 工作台';
   $('status').textContent = current ? pageStatus(current, true) : '选择账号开始';
   $('status').classList.toggle('error', Boolean(current?.crashed || current?.pageError));
   $('archive').textContent = current?.archived ? '显示账号入口' : '隐藏账号入口';

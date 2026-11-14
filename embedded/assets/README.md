@@ -11,7 +11,7 @@
 - 新图标只用于本工具的识别，不表示扣子官方背书。
 - 打包脚本将 CozeIcon.icns 写入 Contents/Resources 并设置 CFBundleIconFile。
 
-The platform switcher loads bundled PNGs from `embedded/ui/platform-icons`. The all-platform grid is drawn for this app. The provider marks identify the corresponding web services and belong to their respective owners.
+The platform switcher loads bundled PNGs from `embedded/ui/platform-icons`. The all-platform view uses the arrow symbol cropped from the [official Zhijinhua logo](https://zhijinhua.cn/assets/web/logo_zhijinhua.webp), source SHA-256 `8149410b4eba68e4ba110fe5654cd350dedf220512fa9bebe417283146e748ed`. The provider marks identify the corresponding web services and belong to their respective owners.
 
 - Coze: existing `coze-official-logo.png` above.
 - Doubao: [official chat favicon](https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/favicon/new-doubao/128x128.png).
